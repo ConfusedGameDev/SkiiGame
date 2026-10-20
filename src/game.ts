@@ -13,6 +13,7 @@ const FAST_SPEED = 190;
 const BOOST_RATE = 8;          // px/s of extra top speed gained per second of clean skiing
 const TOP_SPEED = 380;         // the build-up stops here
 const FIRE_SPEED = 230;        // above this the skier trails flames
+const STICK_DEADZONE = 0.25;   // touch stick push (0..1) needed before it steers
 const ACCEL = 2.2;             // approach rate toward target speed
 const DECEL = 5.0;
 const GRAVITY = 420;
@@ -385,13 +386,19 @@ export class Game {
     }
     if (input.straight) s.heading = 0;
 
-    // Pointer steering (mouse hover or held touch): head toward the pointer.
-    const p = input.touch.active ? input.touch : input.mouse.active ? input.mouse : null;
-    if (p) {
-      const { x, y } = input.toLogical(p, 1);
+    // Touch stick: head the way it is pushed. Mouse hover: head toward the pointer.
+    let aim: { dx: number; dy: number; flat: number } | null = null;
+    const st = input.stick;
+    if (st.active) {
+      if (Math.hypot(st.dx, st.dy) > STICK_DEADZONE) aim = { dx: st.dx, dy: st.dy, flat: 0.05 };
+    } else if (input.mouse.active) {
+      const { x, y } = input.toLogical(input.mouse, 1);
       const { sx, sy } = this.skierScreen();
-      const dx = x - sx, dy = y - (sy - 6);
-      if (dy <= 2) {
+      aim = { dx: x - sx, dy: y - (sy - 6), flat: 2 };
+    }
+    if (aim) {
+      const { dx, dy } = aim;
+      if (dy <= aim.flat) {
         s.heading = dx < 0 ? -HEADING_STEPS : HEADING_STEPS;
       } else {
         const ang = Math.atan2(Math.abs(dx), dy) * (180 / Math.PI); // 0 = down, 90 = sideways
@@ -401,13 +408,12 @@ export class Game {
     }
   }
 
-  /** -1 / 0 / +1: held steering keys or buttons, or a finger held left/right of the skier. */
+  /** -1 / 0 / +1: held steering keys, or the touch stick pushed left / right. */
   private spinInput(input: Input): number {
     const d = input.spinDir();
-    if (d !== 0 || !input.touch.active) return d;
-    const { x } = input.toLogical(input.touch, 1);
-    const dx = x - this.skierScreen().sx;
-    return Math.abs(dx) < 8 ? 0 : Math.sign(dx);
+    if (d !== 0 || !input.stick.active) return d;
+    const dx = input.stick.dx;
+    return Math.abs(dx) < STICK_DEADZONE ? 0 : Math.sign(dx);
   }
 
   private moveSkier(dt: number, input: Input): void {

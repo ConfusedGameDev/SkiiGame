@@ -6,6 +6,9 @@ export interface Pointer {
   y: number;
 }
 
+/** How far (CSS px) the knob travels from the stick's base. */
+const STICK_RADIUS = 40;
+
 export class Input {
   /** -1 left, +1 right, 0 none; consumed per press. */
   turn = 0;
@@ -20,19 +23,31 @@ export class Input {
   /** Pointer press this frame, CSS pixels relative to the canvas. */
   tap: { x: number; y: number } | null = null;
 
-  /** Steering keys / buttons currently held down; used to spin in the air. */
+  /** Steering keys currently held down; used to spin in the air. */
   private held = { left: false, right: false };
 
   /** Mouse steering: last known position; disabled until the mouse moves again after a key press. */
   mouse: Pointer = { active: false, x: 0, y: 0 };
-  /** Touch steering: finger held on the slope. */
-  touch: Pointer = { active: false, x: 0, y: 0 };
+  /**
+   * Touch steering: a floating stick that appears wherever a finger lands.
+   * dx / dy are the knob offset from the base, normalised to -1..1 (dy positive = downhill).
+   */
+  stick = { active: false, dx: 0, dy: 0 };
 
   private readonly canvas: HTMLCanvasElement;
   private touchId: number | null = null;
+  private stickBase = { x: 0, y: 0 };
+  private readonly stickEl: HTMLElement;
+  private readonly knobEl: HTMLElement;
 
   constructor(canvas: HTMLCanvasElement, touchRoot: HTMLElement) {
     this.canvas = canvas;
+    this.stickEl = document.createElement('div');
+    this.stickEl.className = 'stick hidden';
+    this.knobEl = document.createElement('div');
+    this.knobEl.className = 'knob';
+    this.stickEl.appendChild(this.knobEl);
+    document.body.appendChild(this.stickEl);
 
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement) return;   // typing a name or room code
@@ -64,8 +79,7 @@ export class Input {
         const r = canvas.getBoundingClientRect();
         this.mouse = { active: true, x: e.clientX - r.left, y: e.clientY - r.top };
       } else if (e.pointerId === this.touchId) {
-        const r = canvas.getBoundingClientRect();
-        this.touch = { active: true, x: e.clientX - r.left, y: e.clientY - r.top };
+        this.moveStick(e.clientX, e.clientY);
       }
     });
 
@@ -79,8 +93,10 @@ export class Input {
       }
       if (this.touchId !== null) return;
       this.touchId = e.pointerId;
-      const r = canvas.getBoundingClientRect();
-      this.touch = { active: true, x: e.clientX - r.left, y: e.clientY - r.top };
+      this.stickBase = { x: e.clientX, y: e.clientY };
+      this.stick = { active: true, dx: 0, dy: 0 };
+      this.moveStick(e.clientX, e.clientY);
+      this.stickEl.classList.remove('hidden');
       canvas.setPointerCapture(e.pointerId);
       e.preventDefault();
     });
@@ -88,7 +104,8 @@ export class Input {
     const endTouch = (e: PointerEvent) => {
       if (e.pointerId === this.touchId) {
         this.touchId = null;
-        this.touch.active = false;
+        this.stick = { active: false, dx: 0, dy: 0 };
+        this.stickEl.classList.add('hidden');
       }
     };
     canvas.addEventListener('pointerup', endTouch);
@@ -102,25 +119,32 @@ export class Input {
         e.preventDefault();
         this.any = true;
         switch (act) {
-          case 'left': this.turn = -1; this.held.left = true; this.codes.push('ArrowLeft'); break;
-          case 'right': this.turn = 1; this.held.right = true; this.codes.push('ArrowRight'); break;
-          case 'down': this.straight = true; this.codes.push('ArrowDown'); break;
           case 'jump': this.jump = true; this.codes.push('Space'); break;
           case 'fast': this.fastToggle = true; break;
         }
       };
-      const release = () => {
-        if (act === 'left') this.held.left = false;
-        if (act === 'right') this.held.right = false;
-      };
       btn.addEventListener('pointerdown', press);
-      btn.addEventListener('pointerup', release);
-      btn.addEventListener('pointercancel', release);
-      btn.addEventListener('pointerleave', release);
     });
   }
 
-  /** -1 / +1 while a left / right steering key or button is held, else 0. */
+  /** Place the knob under the finger; past the rim the base is dragged along so the stick follows. */
+  private moveStick(cx: number, cy: number): void {
+    let dx = cx - this.stickBase.x, dy = cy - this.stickBase.y;
+    const len = Math.hypot(dx, dy);
+    if (len > STICK_RADIUS) {
+      const k = (len - STICK_RADIUS) / len;
+      this.stickBase.x += dx * k;
+      this.stickBase.y += dy * k;
+      dx -= dx * k;
+      dy -= dy * k;
+    }
+    this.stick.dx = dx / STICK_RADIUS;
+    this.stick.dy = dy / STICK_RADIUS;
+    this.stickEl.style.transform = `translate(${this.stickBase.x}px, ${this.stickBase.y}px)`;
+    this.knobEl.style.transform = `translate(${dx}px, ${dy}px)`;
+  }
+
+  /** -1 / +1 while a left / right steering key is held, else 0. */
   spinDir(): number {
     return (this.held.right ? 1 : 0) - (this.held.left ? 1 : 0);
   }

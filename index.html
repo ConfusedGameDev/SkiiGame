@@ -34,7 +34,7 @@
               hold <kbd>←</kbd> <kbd>→</kbd> in the air to spin<br />
               or steer with the mouse
             </p>
-            <p class="hint mobile">Hold a finger beside the skier to steer, or use the buttons.</p>
+            <p class="hint mobile">Touch anywhere and drag to steer with the stick.</p>
             <button id="btn-start">Start</button>
             <button id="btn-mp">Multiplayer</button>
             <p class="best" id="best-title"></p>
@@ -70,8 +70,8 @@
             <h1>Help</h1>
             <p><b>Keyboard:</b> Arrow keys or WASD steer. Down = straight. Space / Up = jump, and flip while airborne. F toggles fast mode. P pauses. R restarts.</p>
             <p><b>Mouse:</b> the skier heads towards the pointer. Point above the skier to stop.</p>
-            <p><b>Touch:</b> hold a finger on the slope to steer towards it, or use the buttons.</p>
-            <p><b>Tricks:</b> hold left / right while airborne to spin (on touch, hold ◀ ▶ or a finger beside the skier). Land facing downhill: 360 = 100, 720 = 250, 1080 = 500. A flip is 50, and spin + flip in one jump scores ×1.5. Land crooked or mid-flip and you bail.</p>
+            <p><b>Touch:</b> put a finger down anywhere and a stick appears under it; drag the way you want to ski.</p>
+            <p><b>Tricks:</b> hold left / right while airborne to spin (on touch, push the stick left / right). Land facing downhill: 360 = 100, 720 = 250, 1080 = 500. A flip is 50, and spin + flip in one jump scores ×1.5. Land crooked or mid-flip and you bail.</p>
             <p>Big ramps send you higher than small ones. Moguls bump you. You can clear small things while airborne, but not big trees or lift poles.</p>
             <p><b>Score</b> = metres + trick points. Make the top ten and you get to enter your initials.</p>
             <p><b>Races:</b> Multiplayer → create a race and share the link. Each time the leader passes 1000 m the yeti eats whoever is last; most points when eaten wins.</p>
@@ -81,11 +81,7 @@
         </div>
 
         <div id="touch" class="touch">
-          <div class="tc-left">
-            <button data-act="left">◀</button>
-            <button data-act="down">▼</button>
-            <button data-act="right">▶</button>
-          </div>
+          <div class="tc-left"></div>
           <div class="tc-right">
             <button data-act="fast" id="tc-fast">FAST</button>
             <button data-act="jump">JUMP</button>

@@ -191,6 +191,27 @@ button:active {
 .touch button.on { background: #ffd080; border-color: var(--win-darker) var(--win-light) var(--win-light) var(--win-darker); }
 .touch.hidden { display: none; }
 
+/* Floating touch stick: positioned at the finger by Input (translate = centre point). */
+.stick {
+  position: fixed;
+  left: -44px; top: -44px;
+  width: 88px; height: 88px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  z-index: 10;
+}
+.stick .knob {
+  position: absolute;
+  left: 22px; top: 22px;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  border: 2px solid rgba(0, 0, 0, 0.35);
+}
+.stick.hidden { display: none; }
+
 .panel input.code {
   font-family: var(--font);
   font-size: 15px;
