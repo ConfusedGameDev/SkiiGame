@@ -21,6 +21,29 @@ npm run build     # production bundle in dist/
 npm run preview   # serve the production bundle
 ```
 
+## Multiplayer races
+
+Press **Multiplayer**, create a race and send friends the link (`?room=ABCD`) or the 4-letter code.
+
+- The race starts 10 s after the second player joins; every new arrival resets the countdown.
+- Everyone skis the same mountain (shared seed). Other players appear as green skiers with their initials.
+- Each time the leader passes 1000, 2000, 3000 m… the yeti eats whoever is furthest behind,
+  until everyone is eaten. The winner is whoever had the most points when they were eaten.
+- Joining mid-race lets you watch; you're in the next race automatically.
+
+Locally, run the race server next to Vite (Vite proxies `/api/race` to it):
+
+```
+npm run dev:server   # ws://localhost:8787, in-memory rooms
+npm run dev
+npm test             # room rule unit tests
+```
+
+In production `api/race.ts` is a Vercel Function serving WebSockets. Rooms live in Redis (`REDIS_URL`,
+from a Marketplace Redis database connected to the project) so players on different function instances
+share a room; without it the function falls back to in-memory rooms, which only works while everyone
+lands on the same instance.
+
 ## Controls
 
 | Action                | Keyboard                | Mouse                              | Touch                                     |
@@ -48,6 +71,10 @@ npm run preview   # serve the production bundle
   wagons are drawn overhead, positioned purely from time so the line never needs storing.
 - `src/highscores.ts` / `src/scores.ts` – initials entry and top-ten board (canvas), saved in `localStorage`.
 - `src/font.ts` – text drawn with the Kenney letter tiles.
+- `server/room.ts` – race rules (countdown, yeti eliminations, results) over a small storage interface;
+  `server/redis-store.ts` for production, `server/memory-store.ts` for dev/tests, `server/handler.ts` for the
+  WebSocket wiring, `api/race.ts` as the Vercel Function entry.
+- `src/race.ts` / `src/net/` – client side of a race: room snapshot, interpolated ghosts, reconnecting socket.
 - `src/main.ts` – bootstrap, integer-scaled resolution, HUD and overlay panels.
 
 The canvas renders at a low logical resolution and is scaled up by an integer factor with

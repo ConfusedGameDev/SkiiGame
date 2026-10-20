@@ -2,7 +2,9 @@ import { COLORS, pixelLine, type Sprite, type SpriteSet } from './sprites.ts';
 import { World, HITBOX, SOLID, CLEAR_HEIGHT, PX_PER_M, type Obstacle } from './world.ts';
 import { renderLift } from './lift.ts';
 import { drawText } from './font.ts';
-import { HighScores } from './highscores.ts';
+import { HighScores, dim, drawTable, rankRow } from './highscores.ts';
+import { GHOST_EAT_MS, slotX, type Ghost, type RaceSession } from './race.ts';
+import { STATE_HZ, type Pose } from './net/protocol.ts';
 import type { Input } from './input.ts';
 
 // ---- Tuning ---------------------------------------------------------------
@@ -29,8 +31,13 @@ const HEADING_STEPS = 4;       // 0 = straight down, ±4 = sideways (stopped)
 const TRACK_SPACING = 3;
 const MAX_TRACKS = 700;
 const POPUP_TIME = 1.1;
+const GO_TIME = 0.8;           // "GO!" stays up this long after a race starts
+const RESULTS_DELAY = 0.8;
 
-export type Phase = 'title' | 'playing' | 'paused' | 'entry' | 'board';
+/** Solo: title → playing ⇄ paused → entry → board. Race: lobby → countdown → playing → spectating → results. */
+export type Phase =
+  | 'title' | 'playing' | 'paused' | 'entry' | 'board'
+  | 'lobby' | 'countdown' | 'spectating' | 'results';
 
 interface Track { x: number; y: number; }
 
@@ -88,6 +95,13 @@ export class Game {
   private readonly scores = new HighScores();
   private viewW = 320;
   private viewH = 240;
+  // Multiplayer race state (mode 'race' only).
+  mode: 'solo' | 'race' = 'solo';
+  private race: RaceSession | null = null;
+  private raceId = -1;         // the race the local world was prepared for
+  private sendAcc = 0;
+  private pingAcc = 0;
+  private resultsT = 0;
   onPhase: (p: Phase) => void = () => {};
 
   constructor(sprites: SpriteSet) {
@@ -100,10 +114,10 @@ export class Game {
     this.viewH = h;
   }
 
-  reset(): void {
-    this.world = new World((Math.random() * 0xffffffff) >>> 0);
+  reset(seed = (Math.random() * 0xffffffff) >>> 0, startX = 0): void {
+    this.world = new World(seed);
     this.skier = {
-      x: 0, y: 0, z: 0, vz: 0, heading: 0, speed: 0, fast: false,
+      x: startX, y: 0, z: 0, vz: 0, heading: 0, speed: 0, fast: false,
       state: 'ski', stateT: 0, flipT: 0, airFlips: 0, spin: 0, lastJumpId: 0, ignoreId: 0, trackDist: 0,
     };
     this.yeti = { state: 'none', x: 0, y: 0, t: 0, frame: 0 };
@@ -114,8 +128,38 @@ export class Game {
   }
 
   start(): void {
+    this.leaveRace();
     this.reset();
     this.setPhase('playing');
+  }
+
+  /** Switch to race mode with an already-connecting session; shows the lobby. */
+  enterRace(session: RaceSession): void {
+    this.mode = 'race';
+    this.race = session;
+    this.raceId = -1;
+    this.reset();
+    this.setPhase('lobby');
+  }
+
+  /** Drop out of race mode (the caller closes the connection). */
+  leaveRace(): void {
+    if (this.mode !== 'race') return;
+    this.mode = 'solo';
+    this.race = null;
+  }
+
+  /** One-line race status for the HUD, or null outside a race. */
+  raceHud(): string | null {
+    const r = this.race;
+    if (this.mode !== 'race' || !r) return null;
+    if (this.phase === 'playing' && this.skier.state !== 'eaten') {
+      const list = r.standings(this.stats().distanceM);
+      const pos = list.findIndex((e) => e.id === r.id) + 1;
+      return `Pos ${pos}/${list.length} · Yeti @ ${r.nextMarkM()} m`;
+    }
+    if (this.phase === 'spectating') return r.status() === 'waiting' ? 'Race in progress' : 'Spectating';
+    return `Room ${r.room}`;
   }
 
   private setPhase(p: Phase): void {
@@ -123,7 +167,13 @@ export class Game {
     this.onPhase(p);
   }
 
+  showTitle(): void {
+    this.leaveRace();
+    this.setPhase('title');
+  }
+
   togglePause(): void {
+    if (this.mode === 'race') return;   // a race can't be paused for everyone
     if (this.phase === 'playing') this.setPhase('paused');
     else if (this.phase === 'paused') this.setPhase('playing');
   }
@@ -147,22 +197,37 @@ export class Game {
 
   private camera(): { cx: number; cy: number } {
     const { sx, sy } = this.skierScreen();
-    return { cx: this.skier.x - sx, cy: this.skier.y - sy };
+    const target = this.cameraTarget();
+    return { cx: target.x - sx, cy: target.y - sy };
+  }
+
+  /** The skier, or while spectating a race, whoever is leading. */
+  private cameraTarget(): { x: number; y: number } {
+    if (this.phase === 'spectating' && this.race) {
+      const g = this.race.leaderGhost();
+      const p = g && this.race.ghostPose(g);
+      if (p) return p;
+    }
+    return this.skier;
   }
 
   // ---- Update --------------------------------------------------------------
   update(dt: number, input: Input): void {
     if (this.phase !== 'paused') this.animT += dt;
 
-    if (this.phase === 'entry' || this.phase === 'board') {
-      const r = this.scores.update(dt, input, this.viewW, this.viewH);
-      if (r === 'saved') this.setPhase('board');
-      else if (r === 'again') this.start();
-      return;
+    if (this.mode === 'race') {
+      this.updateRace(dt, input);
+      if (this.phase !== 'playing') { this.tickPopups(dt); return; }
+    } else {
+      if (this.phase === 'entry' || this.phase === 'board') {
+        const r = this.scores.update(dt, input, this.viewW, this.viewH);
+        if (r === 'saved') this.setPhase('board');
+        else if (r === 'again') this.start();
+        return;
+      }
+      if (input.restart) { this.start(); return; }
+      if (input.pause) { this.togglePause(); }
     }
-
-    if (input.restart) { this.start(); return; }
-    if (input.pause) { this.togglePause(); }
     if (this.phase !== 'playing') return;
 
     this.time += dt;
@@ -178,11 +243,86 @@ export class Game {
       this.moveSkier(dt, input);
     }
 
-    for (const p of this.popups) p.t += dt;
-    this.popups = this.popups.filter((p) => p.t < POPUP_TIME);
-
+    this.tickPopups(dt);
     this.updateYeti(dt);
     this.world.prune(s.x, s.y);
+    if (this.mode === 'race') this.sendPose(dt);
+  }
+
+  private tickPopups(dt: number): void {
+    for (const p of this.popups) p.t += dt;
+    this.popups = this.popups.filter((p) => p.t < POPUP_TIME);
+  }
+
+  // ---- Race ----------------------------------------------------------------
+  private updateRace(dt: number, input: Input): void {
+    const r = this.race!;
+    if (this.phase !== 'playing') {
+      this.pingAcc += dt;
+      if (this.pingAcc >= 1) { this.pingAcc = 0; r.client.ping(); }
+    }
+    // Other players' events become popups where the camera is looking.
+    const at = this.cameraTarget();
+    while (r.events.length) this.popupAt([r.events.shift()!], at.x, at.y - 24);
+
+    const st = r.status();
+    switch (this.phase) {
+      case 'lobby':
+      case 'countdown': {
+        if (st === 'waiting') { this.setPhase('spectating'); break; }
+        if (!r.snap || (st !== 'lobby' && st !== 'racing')) break;
+        const me = r.snap.players.find((p) => p.id === r.id);
+        if (this.raceId !== r.snap.raceId) {
+          this.raceId = r.snap.raceId;
+          this.reset(r.snap.seed, slotX(me?.slot ?? 0));
+        }
+        const ph = r.phase();
+        if (ph === 'racing') { this.sendAcc = 0; this.setPhase('playing'); }
+        else if (ph !== this.phase) this.setPhase(ph);
+        break;
+      }
+      case 'playing':
+        if (r.eatenMe) { r.eatenMe = false; this.eatNow(); }
+        break;
+      case 'spectating':
+        if (st === 'lobby') this.setPhase('lobby');                       // a waiting player's turn
+        else if (st !== 'waiting' && r.results?.raceId === this.raceId) { this.resultsT = 0; this.setPhase('results'); }
+        break;
+      case 'results': {
+        this.resultsT += dt;
+        const go = input.tap || input.codes.some((c) => c === 'Space' || c === 'Enter');
+        if (this.resultsT >= RESULTS_DELAY && go) {
+          r.results = null;
+          r.client.hello();          // back into the room for the next race
+          this.setPhase('lobby');
+        }
+        break;
+      }
+    }
+  }
+
+  private sendPose(dt: number): void {
+    const s = this.skier;
+    if (s.state === 'eaten') return;
+    this.sendAcc += dt;
+    if (this.sendAcc < 1 / STATE_HZ) return;
+    this.sendAcc = 0;
+    const st = this.stats();
+    const pose: Pose = {
+      x: s.x, y: s.y, z: s.z, heading: s.heading, spin: s.spin,
+      flip: s.flipT > 0, crash: s.state === 'crash', dist: st.distanceM, score: st.score,
+    };
+    this.race!.client.sendState(pose);
+  }
+
+  /** The server picked us: the yeti appears right beside the skier and takes them. */
+  private eatNow(): void {
+    const s = this.skier;
+    s.state = 'crash';
+    s.stateT = Infinity;
+    s.speed = 0; s.z = 0; s.vz = 0; s.flipT = 0; s.spin = 0;
+    const side = Math.random() < 0.5 ? -1 : 1;
+    this.yeti = { state: 'chase', x: s.x + side * 40, y: s.y - 30, t: 0, frame: 0 };
   }
 
   private readSteering(input: Input): void {
@@ -302,7 +442,11 @@ export class Game {
   }
 
   private popup(lines: string[]): void {
-    this.popups.push({ lines, x: this.skier.x, y: this.skier.y - 24, t: 0 });
+    this.popupAt(lines, this.skier.x, this.skier.y - 24);
+  }
+
+  private popupAt(lines: string[], x: number, y: number): void {
+    this.popups.push({ lines, x, y, t: 0 });
   }
 
   private collide(): void {
@@ -347,7 +491,8 @@ export class Game {
   private updateYeti(dt: number): void {
     const y = this.yeti, s = this.skier;
     if (y.state === 'none') {
-      if (s.y / PX_PER_M >= YETI_DISTANCE_M) {
+      // In a race the server decides who the yeti takes (see eatNow).
+      if (this.mode === 'solo' && s.y / PX_PER_M >= YETI_DISTANCE_M) {
         const side = Math.random() < 0.5 ? -1 : 1;
         y.state = 'chase';
         y.x = s.x + side * (this.viewW / 2 + 24);
@@ -376,6 +521,7 @@ export class Game {
     } else if (y.state === 'eat') {
       y.frame = Math.floor(y.t * 4) % 2;
       if (y.t >= YETI_EAT_TIME) {
+        if (this.mode === 'race') { this.setPhase('spectating'); return; }
         const st = this.stats();
         this.setPhase(this.scores.begin({ score: st.score, dist: Math.floor(st.distanceM), style: st.style }));
       }
@@ -409,10 +555,13 @@ export class Game {
     }
 
     items.push({ y: s.y, draw: () => this.drawSkier(ctx, cx, cy) });
+    for (const { g, pose } of this.visibleGhosts()) {
+      items.push({ y: pose.y - 0.25, draw: () => this.drawGhost(ctx, g, pose, cx, cy) });
+    }
 
-    // Yeti.
+    // Yeti (ours stays put after the meal; hide it once we're spectating someone else).
     const yt = this.yeti;
-    if (yt.state !== 'none') {
+    if (yt.state !== 'none' && this.phase !== 'spectating') {
       items.push({
         y: yt.y + 0.5,
         draw: () => {
@@ -429,38 +578,48 @@ export class Game {
 
     // Overhead: lift cables and wagons, then trick popups.
     renderLift(ctx, sp, cx, cy, W, H, this.animT);
-    for (const p of this.popups) {
+    for (const p of this.phase === 'results' ? [] : this.popups) {
       if (p.t > POPUP_TIME - 0.3 && Math.floor(p.t * 12) % 2 === 0) continue;
       const px = Math.round(p.x - cx), py = Math.round(p.y - cy - p.t * 18);
       p.lines.forEach((line, i) => drawText(ctx, sp.glyphs, line, px, py - (p.lines.length - 1 - i) * 16, 'center'));
     }
 
     if (this.phase === 'entry' || this.phase === 'board') this.scores.render(ctx, sp.glyphs, W, H);
+    if (this.mode === 'race') this.renderRaceOverlay(ctx, W, H);
   }
 
   private drawSkier(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
     const s = this.skier, sp = this.sprites;
-    const sx = Math.round(s.x - cx), sy = Math.round(s.y - cy);
-    if (s.state === 'eaten') return;
-    if (s.state === 'crash') {
-      const c = sp.skierCrash;
-      ctx.drawImage(c.img, sx - (c.w >> 1), sy - c.h + 2);
+    if (s.state === 'eaten' || this.phase === 'spectating') return;
+    this.drawRider(ctx, Math.round(s.x - cx), Math.round(s.y - cy),
+      { z: s.z, spin: s.spin, flip: s.flipT > 0, crash: s.state === 'crash', heading: s.heading },
+      { stand: sp.skier, air: sp.skierAir, flip: sp.skierFlip, crash: sp.skierCrash });
+  }
+
+  /** A skier at screen (sx, sy): standing, crashed, or airborne with spin and flip. */
+  private drawRider(
+    ctx: CanvasRenderingContext2D, sx: number, sy: number,
+    p: { z: number; spin: number; flip: boolean; crash: boolean; heading: number },
+    look: { stand: Sprite; air: Sprite; flip: Sprite; crash: Sprite },
+  ): void {
+    if (p.crash) {
+      ctx.drawImage(look.crash.img, sx - (look.crash.w >> 1), sy - look.crash.h + 2);
       return;
     }
-    if (s.z <= 0) {
+    if (p.z <= 0) {
       // The sprite already shows ski tips pointing downhill; only draw rotated skis when turned.
-      if (s.heading !== 0) this.drawSkis(ctx, sx, sy, s.heading);
-      ctx.drawImage(sp.skier.img, sx - (sp.skier.w >> 1), sy - sp.skier.h + 2);
+      if (p.heading !== 0) this.drawSkis(ctx, sx, sy, Math.round(p.heading));
+      ctx.drawImage(look.stand.img, sx - (look.stand.w >> 1), sy - look.stand.h + 2);
       return;
     }
 
     // Airborne: shadow on the snow, body lifted and rotated by the spin (snapped to 45°).
     ctx.fillStyle = COLORS.track;
     ctx.fillRect(sx - 5, sy - 1, 10, 2);
-    const lift = Math.round(s.z * AIR_DRAW_SCALE);
-    const b = s.flipT > 0 ? sp.skierFlip : sp.skierAir;
-    const snap = Math.round(s.spin / 45) * 45;
-    const midY = sy - lift - (b.h >> 1) + 2 - (s.flipT > 0 ? 6 : 0);
+    const lift = Math.round(p.z * AIR_DRAW_SCALE);
+    const b = p.flip ? look.flip : look.air;
+    const snap = Math.round(p.spin / 45) * 45;
+    const midY = sy - lift - (b.h >> 1) + 2 - (p.flip ? 6 : 0);
     if (snap % 360 === 0) {
       ctx.drawImage(b.img, sx - (b.w >> 1), midY - (b.h >> 1));
       return;
@@ -470,6 +629,68 @@ export class Game {
     ctx.rotate((snap * Math.PI) / 180);
     ctx.drawImage(b.img, -(b.w >> 1), -(b.h >> 1));
     ctx.restore();
+  }
+
+  /** Another racer: green skier with initials, or the yeti's meal for a moment after they're caught. */
+  private drawGhost(ctx: CanvasRenderingContext2D, g: Ghost, pose: Pose, cx: number, cy: number): void {
+    const sp = this.sprites;
+    const sx = Math.round(pose.x - cx), sy = Math.round(pose.y - cy);
+    if (g.eatenAt !== null) {
+      const t = performance.now() - g.eatenAt;
+      const f = sp.yetiEat[Math.floor(t / 250) % 2];
+      ctx.drawImage(f.img, sx - (f.w >> 1), sy - f.h + 1);
+      return;
+    }
+    this.drawRider(ctx, sx, sy, pose, { stand: sp.rival, air: sp.rivalAir, flip: sp.rivalFlip, crash: sp.rivalCrash });
+    const lift = pose.z > 0 ? Math.round(pose.z * AIR_DRAW_SCALE) : 0;
+    drawText(ctx, sp.glyphs, g.name, sx, sy - lift - 36, 'center');
+  }
+
+  /** Ghosts to draw this frame, with the pose to draw each at. */
+  private visibleGhosts(): { g: Ghost; pose: Pose }[] {
+    const r = this.race;
+    if (!r) return [];
+    const out: { g: Ghost; pose: Pose }[] = [];
+    const now = performance.now();
+    for (const g of r.ghosts.values()) {
+      if (g.status === 'waiting') continue;
+      if (g.status === 'eaten' && (g.eatenAt === null || now - g.eatenAt > GHOST_EAT_MS)) continue;
+      const pose = r.ghostPose(g) ?? {
+        x: slotX(g.slot), y: 0, z: 0, heading: 0, spin: 0, flip: false, crash: false, dist: 0, score: 0,
+      };
+      out.push({ g, pose });
+    }
+    return out;
+  }
+
+  /** Race overlays: countdown, "GO!", spectator banner, results table. */
+  private renderRaceOverlay(ctx: CanvasRenderingContext2D, W: number, H: number): void {
+    const r = this.race;
+    if (!r) return;
+    const glyphs = this.sprites.glyphs;
+    if (this.phase === 'countdown') {
+      const n = Math.ceil(r.countdownMs() / 1000);
+      drawText(ctx, glyphs, 'GET READY', W / 2, Math.round(H * 0.1), 'center');
+      if (n > 0) drawText(ctx, glyphs, String(n), W / 2, Math.round(H * 0.55), 'center', 3);
+    } else if (this.phase === 'playing' && this.time < GO_TIME) {
+      drawText(ctx, glyphs, 'GO!', W / 2, Math.round(H * 0.55), 'center', 3);
+    } else if (this.phase === 'spectating') {
+      const waiting = r.status() === 'waiting';
+      drawText(ctx, glyphs, waiting ? 'RACE IN PROGRESS' : 'SPECTATING', W / 2, 4, 'center');
+      if (waiting) drawText(ctx, glyphs, 'NEXT RACE SOON', W / 2, 22, 'center');
+    } else if (this.phase === 'results' && r.results) {
+      dim(ctx, W, H);
+      const ranking = r.results.ranking;
+      drawTable(ctx, glyphs, W, H, {
+        title: 'RACE RESULTS',
+        subtitle: ranking.length ? `WINNER ${ranking[0].name}` : null,
+        rows: ranking.map((e, i) => rankRow(i, e.name, e.finalScore)),
+        empty: 'NO RESULTS',
+        highlight: ranking.findIndex((e) => e.id === r.id),
+        t: this.resultsT,
+        footer: this.resultsT >= RESULTS_DELAY ? 'SPACE: NEXT RACE' : null,
+      });
+    }
   }
 
   private drawObstacle(ctx: CanvasRenderingContext2D, o: Obstacle, cx: number, cy: number): void {

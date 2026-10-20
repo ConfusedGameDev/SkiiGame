@@ -37,6 +37,8 @@ const T = {
   yetiRoar: 80,
   skier: 82,
   skierPoles: 83,
+  rival: 70,          // the green skier: other players in a race
+  rivalPoles: 71,
 } as const;
 
 /** Colours taken from the sheet so procedural bits (skis, tracks, shadows) match the art. */
@@ -153,6 +155,10 @@ export interface SpriteSet {
   skierAir: Sprite;
   skierCrash: Sprite;
   skierFlip: Sprite;
+  rival: Sprite;
+  rivalAir: Sprite;
+  rivalFlip: Sprite;
+  rivalCrash: Sprite;
   yetiRun: Sprite[];
   yetiEat: Sprite[];
   glyphs: Map<string, Sprite>;
@@ -183,6 +189,10 @@ export async function loadSprites(): Promise<SpriteSet> {
     skierAir: cut(sheet, [[T.skierPoles]]),
     skierCrash: cut(sheet, [[T.skier]], 'rot90'),
     skierFlip: cut(sheet, [[T.skierPoles]], 'flipY'),
+    rival: cut(sheet, [[T.rival]]),
+    rivalAir: cut(sheet, [[T.rivalPoles]]),
+    rivalFlip: cut(sheet, [[T.rivalPoles]], 'flipY'),
+    rivalCrash: cut(sheet, [[T.rival]], 'rot90'),
     yetiRun: [cut(sheet, [[T.yetiA]]), cut(sheet, [[T.yetiB]])],
     yetiEat: [cut(sheet, [[T.yetiRoar]]), cut(sheet, [[T.yetiA]])],
     glyphs: glyphs(sheet),

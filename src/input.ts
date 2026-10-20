@@ -35,6 +35,7 @@ export class Input {
     this.canvas = canvas;
 
     window.addEventListener('keydown', (e) => {
+      if (e.target instanceof HTMLInputElement) return;   // typing a name or room code
       if (e.repeat && e.code !== 'ArrowLeft' && e.code !== 'ArrowRight' && e.code !== 'KeyA' && e.code !== 'KeyD') return;
       this.any = true;
       this.codes.push(e.code);

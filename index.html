@@ -36,7 +36,29 @@
             </p>
             <p class="hint mobile">Hold a finger beside the skier to steer, or use the buttons.</p>
             <button id="btn-start">Start</button>
+            <button id="btn-mp">Multiplayer</button>
             <p class="best" id="best-title"></p>
+          </div>
+
+          <div class="panel hidden" id="panel-mp">
+            <h1>Race</h1>
+            <p>Everyone skis the same mountain at once. Each time the leader passes 1000 m, the yeti eats whoever is last. Most points when you get eaten wins.</p>
+            <p><label>Your initials <input id="mp-name" class="code" maxlength="3" autocomplete="off" spellcheck="false" /></label></p>
+            <p><button id="mp-create">Create race</button></p>
+            <p>or join with a code:
+              <input id="mp-code" class="code" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false" />
+              <button id="mp-join">Join</button></p>
+            <p class="hint" id="mp-error"></p>
+            <button id="mp-back">Back</button>
+          </div>
+
+          <div class="panel hidden" id="panel-lobby">
+            <h1>Room <span id="lobby-code"></span></h1>
+            <p class="hint">Share the link: the race starts 10 s after the second player joins, and each new arrival resets the clock.</p>
+            <button id="lobby-copy">Copy link</button>
+            <ul id="lobby-players" class="players"></ul>
+            <p id="lobby-status"></p>
+            <button id="lobby-leave">Leave</button>
           </div>
 
           <div class="panel hidden" id="panel-pause">
@@ -52,6 +74,7 @@
             <p><b>Tricks:</b> hold left / right while airborne to spin (on touch, hold ◀ ▶ or a finger beside the skier). Land facing downhill: 360 = 100, 720 = 250, 1080 = 500. A flip is 50, and spin + flip in one jump scores ×1.5. Land crooked or mid-flip and you bail.</p>
             <p>Big ramps send you higher than small ones. Moguls bump you. You can clear small things while airborne, but not big trees or lift poles.</p>
             <p><b>Score</b> = metres + trick points. Make the top ten and you get to enter your initials.</p>
+            <p><b>Races:</b> Multiplayer → create a race and share the link. Each time the leader passes 1000 m the yeti eats whoever is last; most points when eaten wins.</p>
             <p class="hint">Art: Tiny Ski by Kenney (kenney.nl), CC0.</p>
             <button id="btn-help-close">OK</button>
           </div>
@@ -70,6 +93,7 @@
         </div>
       </div>
       <div class="statusbar">
+        <span id="st-race" class="hidden"></span>
         <span id="st-score">Score 0</span>
         <span id="st-dist">0 m</span>
         <span id="st-speed">0 m/s</span>

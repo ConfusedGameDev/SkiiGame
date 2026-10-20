@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "dev:server": "node server/dev.ts",
+    "test": "node --test server/room.test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

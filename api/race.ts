@@ -1,14 +1,24 @@
-// Spike: WebSocket echo that proves Vercel serves WebSockets for this project and bundles shared code.
+// Multiplayer race WebSocket endpoint: wss://<host>/api/race
+// Rooms live in Redis so players on different function instances share them. Without REDIS_URL it
+// falls back to in-memory rooms, which only works while everyone lands on the same instance.
+
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
-import { MARK_M } from '../src/net/protocol.ts';
+import { attachRace } from '../server/handler.ts';
+import { MemoryBus, MemoryStore } from '../server/memory-store.ts';
+import { RedisBus, RedisStore } from '../server/redis-store.ts';
 
-const server = http.createServer();
+const server = http.createServer((_req, res) => {
+  res.writeHead(426, { 'content-type': 'text/plain' });
+  res.end('WebSocket endpoint for Skii races');
+});
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ t: 'spike', markM: MARK_M, now: Date.now() }));
-  ws.on('message', (data) => ws.send(JSON.stringify({ t: 'echo', data: data.toString() })));
-});
+if (process.env.REDIS_URL || process.env.KV_URL) {
+  attachRace(wss, new RedisStore(), new RedisBus());
+} else {
+  console.warn('[race] REDIS_URL not set; using in-memory rooms (single instance only)');
+  attachRace(wss, new MemoryStore(), new MemoryBus());
+}
 
 export default server;

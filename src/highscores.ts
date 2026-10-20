@@ -116,12 +116,7 @@ export class HighScores {
   }
 
   render(ctx: CanvasRenderingContext2D, glyphs: Map<string, Sprite>, W: number, H: number): void {
-    // Dim the frozen slope behind the text.
-    ctx.save();
-    ctx.globalAlpha = 0.72;
-    ctx.fillStyle = COLORS.outline;
-    ctx.fillRect(0, 0, W, H);
-    ctx.restore();
+    dim(ctx, W, H);
     if (this.mode === 'entry') this.renderEntry(ctx, glyphs, W, H);
     else this.renderBoard(ctx, glyphs, W, H);
   }
@@ -148,27 +143,59 @@ export class HighScores {
 
   private renderBoard(ctx: CanvasRenderingContext2D, glyphs: Map<string, Sprite>, W: number, H: number): void {
     const list = loadScores();
-    let y = 6;
-    drawText(ctx, glyphs, 'HIGH SCORES', W / 2, y, 'center');
-    y += 20;
-    if (this.rank < 0 && this.run.score > 0) {
-      drawText(ctx, glyphs, `YOUR SCORE ${this.run.score}`, W / 2, y, 'center');
-      y += 18;
-    }
-    const footer = H - 18;
-    const rows = Math.max(0, Math.min(list.length, Math.floor((footer - y - 2) / 16)));
-    const rowW = 13 * GLYPH_ADVANCE;
-    const x = Math.round(W / 2 - rowW / 2);
-    const blink = Math.floor(this.t * 4) % 2 === 0;
-    if (list.length === 0) drawText(ctx, glyphs, 'NO SCORES YET', W / 2, y, 'center');
-    for (let i = 0; i < rows; i++) {
-      if (i === this.rank && !blink) continue;
-      const e = list[i];
-      const line = `${String(i + 1).padStart(2, ' ')} ${e.name} ${String(e.score).padStart(6, ' ')}`;
-      drawText(ctx, glyphs, line, x, y + i * 16);
-    }
-    if (this.t >= BOARD_DELAY) drawText(ctx, glyphs, 'SPACE OR TAP', W / 2, footer, 'center');
+    const sub = this.rank < 0 && this.run.score > 0 ? `YOUR SCORE ${this.run.score}` : null;
+    drawTable(ctx, glyphs, W, H, {
+      title: 'HIGH SCORES', subtitle: sub, rows: list.map((e, i) => rankRow(i, e.name, e.score)),
+      empty: 'NO SCORES YET', highlight: this.rank, t: this.t,
+      footer: this.t >= BOARD_DELAY ? 'SPACE OR TAP' : null,
+    });
   }
+}
+
+/** Darken the frozen slope behind an overlay. */
+export function dim(ctx: CanvasRenderingContext2D, W: number, H: number): void {
+  ctx.save();
+  ctx.globalAlpha = 0.72;
+  ctx.fillStyle = COLORS.outline;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+/** "10 ABC 123456": rank, initials, right-aligned score. */
+export function rankRow(i: number, name: string, score: number): string {
+  return `${String(i + 1).padStart(2, ' ')} ${name} ${String(score).padStart(6, ' ')}`;
+}
+
+export interface TableOpts {
+  title: string;
+  subtitle: string | null;
+  rows: string[];
+  empty: string;
+  highlight: number;     // row index that blinks, -1 for none
+  t: number;             // seconds, drives the blink
+  footer: string | null;
+}
+
+/** A centred, arcade-style list in the Kenney font: as many rows as fit above the footer. */
+export function drawTable(ctx: CanvasRenderingContext2D, glyphs: Map<string, Sprite>, W: number, H: number, o: TableOpts): void {
+  let y = 6;
+  drawText(ctx, glyphs, o.title, W / 2, y, 'center');
+  y += 20;
+  if (o.subtitle) {
+    drawText(ctx, glyphs, o.subtitle, W / 2, y, 'center');
+    y += 18;
+  }
+  const footer = H - 18;
+  const rows = Math.max(0, Math.min(o.rows.length, Math.floor((footer - y - 2) / 16)));
+  const rowW = 13 * GLYPH_ADVANCE;
+  const x = Math.round(W / 2 - rowW / 2);
+  const blink = Math.floor(o.t * 4) % 2 === 0;
+  if (o.rows.length === 0) drawText(ctx, glyphs, o.empty, W / 2, y, 'center');
+  for (let i = 0; i < rows; i++) {
+    if (i === o.highlight && !blink) continue;
+    drawText(ctx, glyphs, o.rows[i], x, y + i * 16);
+  }
+  if (o.footer) drawText(ctx, glyphs, o.footer, W / 2, footer, 'center');
 }
 
 /** Small pixel arrow; dir -1 points up, +1 points down. */

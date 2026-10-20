@@ -191,4 +191,29 @@ button:active {
 .touch button.on { background: #ffd080; border-color: var(--win-darker) var(--win-light) var(--win-light) var(--win-darker); }
 .touch.hidden { display: none; }
 
+.panel input.code {
+  font-family: var(--font);
+  font-size: 15px;
+  width: 4.5em;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  padding: 2px 4px;
+  border: 2px solid;
+  border-color: var(--win-darker) var(--win-light) var(--win-light) var(--win-darker);
+}
+.panel ul.players {
+  list-style: none;
+  margin: 10px auto;
+  padding: 4px;
+  min-height: 3em;
+  max-width: 220px;
+  background: #fff;
+  border: 2px solid;
+  border-color: var(--win-darker) var(--win-light) var(--win-light) var(--win-darker);
+  font-weight: bold;
+  letter-spacing: 2px;
+}
+.statusbar #st-race { flex: 1.6 1 0; font-weight: bold; }
+
 .hidden { display: none !important; }
