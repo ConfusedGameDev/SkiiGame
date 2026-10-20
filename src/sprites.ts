@@ -47,6 +47,7 @@ export const COLORS = {
   track: '#b7d2eb',
   shadow: '#cfe7f7',
   outline: '#3f2631',
+  fire: ['#fff6a0', '#ffc23a', '#ff7a1a', '#d8321e'],   // flame colour by age, hot to cooling
 } as const;
 
 export interface Sprite {

@@ -19,7 +19,7 @@ function cleanPose(p: Partial<Pose> | undefined): Pose {
   return {
     x: num(p?.x, -1e7, 1e7), y: num(p?.y, -1e7, 1e8), z: num(p?.z, 0, 1000),
     heading: num(p?.heading, -4, 4), spin: num(p?.spin, -1e5, 1e5),
-    flip: !!p?.flip, crash: !!p?.crash,
+    flip: !!p?.flip, crash: !!p?.crash, fire: !!p?.fire,
     dist: num(p?.dist, 0, 1e7), score: num(p?.score, 0, 1e8),
   };
 }

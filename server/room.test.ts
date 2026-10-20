@@ -16,7 +16,7 @@ function setup() {
 }
 
 const pose = (dist: number, score = dist): Pose =>
-  ({ x: 0, y: dist * 8, z: 0, heading: 0, spin: 0, flip: false, crash: false, dist, score });
+  ({ x: 0, y: dist * 8, z: 0, heading: 0, spin: 0, flip: false, crash: false, fire: false, dist, score });
 
 type Snap = Extract<ServerMsg, { t: 'snapshot' }>;
 const lastSnap = (log: ServerMsg[]) => log.filter((m): m is Snap => m.t === 'snapshot').at(-1)!;

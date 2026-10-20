@@ -13,6 +13,7 @@ export interface Pose {
   x: number; y: number; z: number;
   heading: number; spin: number;
   flip: boolean; crash: boolean;
+  fire: boolean;  // going fast enough to trail flames
   dist: number;   // metres
   score: number;
 }

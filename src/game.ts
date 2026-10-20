@@ -10,6 +10,9 @@ import type { Input } from './input.ts';
 // ---- Tuning ---------------------------------------------------------------
 const MAX_SPEED = 120;         // logical px/s, straight down
 const FAST_SPEED = 190;
+const BOOST_RATE = 8;          // px/s of extra top speed gained per second of clean skiing
+const TOP_SPEED = 380;         // the build-up stops here
+const FIRE_SPEED = 230;        // above this the skier trails flames
 const ACCEL = 2.2;             // approach rate toward target speed
 const DECEL = 5.0;
 const GRAVITY = 420;
@@ -30,6 +33,8 @@ const YETI_EAT_TIME = 2.2;
 const HEADING_STEPS = 4;       // 0 = straight down, ±4 = sideways (stopped)
 const TRACK_SPACING = 3;
 const MAX_TRACKS = 700;
+const FLAME_RATE = 60;         // flames per second per burning skier
+const MAX_FLAMES = 400;
 const POPUP_TIME = 1.1;
 const GO_TIME = 0.8;           // "GO!" stays up this long after a race starts
 const RESULTS_DELAY = 0.8;
@@ -41,11 +46,14 @@ export type Phase =
 
 interface Track { x: number; y: number; }
 
+interface Flame { x: number; y: number; z: number; vx: number; vy: number; t: number; life: number; }
+
 interface Skier {
   x: number; y: number;
   z: number; vz: number;
   heading: number;             // -4..4
   speed: number;
+  boost: number;               // extra top speed built up by not crashing or braking sideways
   fast: boolean;
   state: 'ski' | 'crash' | 'eaten';
   stateT: number;
@@ -88,6 +96,7 @@ export class Game {
   private skier!: Skier;
   private yeti!: Yeti;
   private tracks: Track[] = [];
+  private flames: Flame[] = [];
   private popups: Popup[] = [];
   private style = 0;
   private time = 0;
@@ -117,11 +126,12 @@ export class Game {
   reset(seed = (Math.random() * 0xffffffff) >>> 0, startX = 0): void {
     this.world = new World(seed);
     this.skier = {
-      x: startX, y: 0, z: 0, vz: 0, heading: 0, speed: 0, fast: false,
+      x: startX, y: 0, z: 0, vz: 0, heading: 0, speed: 0, boost: 0, fast: false,
       state: 'ski', stateT: 0, flipT: 0, airFlips: 0, spin: 0, lastJumpId: 0, ignoreId: 0, trackDist: 0,
     };
     this.yeti = { state: 'none', x: 0, y: 0, t: 0, frame: 0 };
     this.tracks = [];
+    this.flames = [];
     this.popups = [];
     this.style = 0;
     this.time = 0;
@@ -217,7 +227,7 @@ export class Game {
 
     if (this.mode === 'race') {
       this.updateRace(dt, input);
-      if (this.phase !== 'playing') { this.tickPopups(dt); return; }
+      if (this.phase !== 'playing') { this.tickPopups(dt); this.tickFlames(dt); return; }
     } else {
       if (this.phase === 'entry' || this.phase === 'board') {
         const r = this.scores.update(dt, input, this.viewW, this.viewH);
@@ -244,6 +254,7 @@ export class Game {
     }
 
     this.tickPopups(dt);
+    this.tickFlames(dt);
     this.updateYeti(dt);
     this.world.prune(s.x, s.y);
     if (this.mode === 'race') this.sendPose(dt);
@@ -252,6 +263,43 @@ export class Game {
   private tickPopups(dt: number): void {
     for (const p of this.popups) p.t += dt;
     this.popups = this.popups.filter((p) => p.t < POPUP_TIME);
+  }
+
+  private onFire(): boolean {
+    return this.skier.state === 'ski' && this.skier.speed >= FIRE_SPEED;
+  }
+
+  /** Age the flames, then light new ones behind every skier going fast enough. */
+  private tickFlames(dt: number): void {
+    for (const f of this.flames) {
+      f.t += dt;
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.z += 20 * dt;
+    }
+    this.flames = this.flames.filter((f) => f.t < f.life);
+
+    const s = this.skier;
+    if (this.phase === 'playing' && this.onFire()) this.spawnFlames(s.x, s.y, s.z, dt);
+    for (const { g, pose } of this.visibleGhosts()) {
+      if (pose.fire && g.eatenAt === null) this.spawnFlames(pose.x, pose.y, pose.z, dt);
+    }
+    if (this.flames.length > MAX_FLAMES) this.flames.splice(0, this.flames.length - MAX_FLAMES);
+  }
+
+  private spawnFlames(x: number, y: number, z: number, dt: number): void {
+    const n = Math.floor(FLAME_RATE * dt + Math.random());
+    for (let i = 0; i < n; i++) {
+      this.flames.push({
+        x: x + (Math.random() * 6 - 3),
+        y: y - 2 - Math.random() * 8,
+        z: z + Math.random() * 4,
+        vx: Math.random() * 12 - 6,
+        vy: -Math.random() * 10,
+        t: 0,
+        life: 0.25 + Math.random() * 0.2,
+      });
+    }
   }
 
   // ---- Race ----------------------------------------------------------------
@@ -310,7 +358,7 @@ export class Game {
     const st = this.stats();
     const pose: Pose = {
       x: s.x, y: s.y, z: s.z, heading: s.heading, spin: s.spin,
-      flip: s.flipT > 0, crash: s.state === 'crash', dist: st.distanceM, score: st.score,
+      flip: s.flipT > 0, crash: s.state === 'crash', fire: this.onFire(), dist: st.distanceM, score: st.score,
     };
     this.race!.client.sendState(pose);
   }
@@ -320,7 +368,7 @@ export class Game {
     const s = this.skier;
     s.state = 'crash';
     s.stateT = Infinity;
-    s.speed = 0; s.z = 0; s.vz = 0; s.flipT = 0; s.spin = 0;
+    s.speed = 0; s.boost = 0; s.z = 0; s.vz = 0; s.flipT = 0; s.spin = 0;
     const side = Math.random() < 0.5 ? -1 : 1;
     this.yeti = { state: 'chase', x: s.x + side * 40, y: s.y - 30, t: 0, frame: 0 };
   }
@@ -366,7 +414,10 @@ export class Game {
     const s = this.skier;
     const ang = (Math.abs(s.heading) / HEADING_STEPS) * (Math.PI / 2);
     const max = s.fast ? FAST_SPEED : MAX_SPEED;
-    const target = s.z > 0 ? s.speed : max * Math.cos(ang);
+    // Speed keeps building until a crash or a full sideways brake.
+    if (Math.abs(s.heading) === HEADING_STEPS) s.boost = 0;
+    else s.boost = Math.min(s.boost + BOOST_RATE * dt, TOP_SPEED - max);
+    const target = s.z > 0 ? s.speed : (max + s.boost) * Math.cos(ang);
     const rate = target > s.speed ? ACCEL : DECEL;
     s.speed += (target - s.speed) * Math.min(1, rate * dt);
     if (s.speed < 1 && target < 1) s.speed = 0;
@@ -485,6 +536,7 @@ export class Game {
     s.stateT = CRASH_TIME;
     s.z = 0; s.vz = 0; s.flipT = 0; s.spin = 0; s.airFlips = 0;
     s.speed = 0;
+    s.boost = 0;
     s.fast = false;
   }
 
@@ -544,6 +596,14 @@ export class Game {
       if (ty < -2 || ty > H + 2) continue;
       ctx.fillRect(tx - 2, ty, 1, 1);
       ctx.fillRect(tx + 2, ty, 1, 1);
+    }
+
+    // Flames, under the riders so each skier draws over their own fire.
+    for (const f of this.flames) {
+      const k = f.t / f.life;
+      const size = k < 0.5 ? 2 : 1;
+      ctx.fillStyle = COLORS.fire[Math.min(COLORS.fire.length - 1, Math.floor(k * COLORS.fire.length))];
+      ctx.fillRect(Math.round(f.x - cx), Math.round(f.y - cy - f.z * AIR_DRAW_SCALE), size, size);
     }
 
     // Collect drawables and sort by base y so nearer things overlap farther ones.
@@ -656,7 +716,7 @@ export class Game {
       if (g.status === 'waiting') continue;
       if (g.status === 'eaten' && (g.eatenAt === null || now - g.eatenAt > GHOST_EAT_MS)) continue;
       const pose = r.ghostPose(g) ?? {
-        x: slotX(g.slot), y: 0, z: 0, heading: 0, spin: 0, flip: false, crash: false, dist: 0, score: 0,
+        x: slotX(g.slot), y: 0, z: 0, heading: 0, spin: 0, flip: false, crash: false, fire: false, dist: 0, score: 0,
       };
       out.push({ g, pose });
     }
