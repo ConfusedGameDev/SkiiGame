@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#008080" />
+    <title>Skii</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="window" class="win">
+      <div class="titlebar">
+        <span class="title">Skii — Freestyle</span>
+        <span class="titlebtns"><span>_</span><span>□</span><span>×</span></span>
+      </div>
+      <div class="menubar">
+        <span id="menu-restart">Restart</span>
+        <span id="menu-pause">Pause</span>
+        <span id="menu-help">Help</span>
+      </div>
+      <div id="stage">
+        <canvas id="game"></canvas>
+
+        <div id="overlay" class="overlay">
+          <div class="panel" id="panel-title">
+            <h1>SKII</h1>
+            <p>Ski down the mountain. Dodge trees, rocks and stumps.<br />
+               Hit ramps for air. Something lives past 2000 m.</p>
+            <p class="hint desktop">
+              <kbd>←</kbd> <kbd>→</kbd> turn &nbsp; <kbd>↓</kbd> straight &nbsp;
+              <kbd>Space</kbd> jump / flip &nbsp; <kbd>F</kbd> fast<br />
+              or steer with the mouse
+            </p>
+            <p class="hint mobile">Hold a finger beside the skier to steer, or use the buttons.</p>
+            <button id="btn-start">Start</button>
+            <p class="best" id="best-title"></p>
+          </div>
+
+          <div class="panel hidden" id="panel-over">
+            <h1 id="over-title">You got eaten.</h1>
+            <p id="over-stats"></p>
+            <button id="btn-retry">Try again</button>
+            <p class="best" id="best-over"></p>
+          </div>
+
+          <div class="panel hidden" id="panel-pause">
+            <h1>Paused</h1>
+            <button id="btn-resume">Resume</button>
+          </div>
+
+          <div class="panel hidden" id="panel-help">
+            <h1>Help</h1>
+            <p><b>Keyboard:</b> Arrow keys or WASD steer. Down = straight. Space / Up = jump, and flip while airborne. F toggles fast mode. P pauses. R restarts.</p>
+            <p><b>Mouse:</b> the skier heads towards the pointer. Point above the skier to stop.</p>
+            <p><b>Touch:</b> hold a finger on the slope to steer towards it, or use the buttons.</p>
+            <p>Land a flip before you touch the snow or you'll eat it. Moguls bump you, ramps launch you. You can clear small things while airborne, but not big trees.</p>
+            <p class="hint">Art: Tiny Ski by Kenney (kenney.nl), CC0.</p>
+            <button id="btn-help-close">OK</button>
+          </div>
+        </div>
+
+        <div id="touch" class="touch">
+          <div class="tc-left">
+            <button data-act="left">◀</button>
+            <button data-act="down">▼</button>
+            <button data-act="right">▶</button>
+          </div>
+          <div class="tc-right">
+            <button data-act="fast" id="tc-fast">FAST</button>
+            <button data-act="jump">JUMP</button>
+          </div>
+        </div>
+      </div>
+      <div class="statusbar">
+        <span id="st-dist">0 m</span>
+        <span id="st-speed">0 m/s</span>
+        <span id="st-time">0:00</span>
+        <span id="st-style">Style 0</span>
+        <span id="st-fast" class="hidden">FAST</span>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

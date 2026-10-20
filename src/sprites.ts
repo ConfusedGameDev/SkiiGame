@@ -1,0 +1,171 @@
+// Sprites cut from Kenney's "Tiny Ski" tilesheet (CC0, www.kenney.nl), trimmed and cached as canvases.
+
+import sheetUrl from '../Assets/Tilemap/tilemap_packed.png';
+
+const TILE = 16;
+const COLS = 12;
+
+/** Tile indices in the packed sheet (row * 12 + col). */
+const T = {
+  snow: 0,
+  snowSpeckle: 5,
+  treeTop: 6,
+  treeBottom: 18,
+  deadTop: 7,
+  deadBottom: 19,
+  treeSmall: 30,
+  stump: 47,
+  rock: 81,
+  mogul: 95,
+  ramp: 36,
+  snowman: 69,
+  flagRed: 20,
+  flagBlue: 21,
+  yetiA: 78,
+  yetiB: 79,
+  yetiRoar: 80,
+  skier: 82,
+  skierPoles: 83,
+} as const;
+
+/** Colours taken from the sheet so procedural bits (skis, tracks, shadows) match the art. */
+export const COLORS = {
+  snow: '#eef8fe',
+  track: '#b7d2eb',
+  shadow: '#cfe7f7',
+  outline: '#3f2631',
+} as const;
+
+export interface Sprite {
+  img: HTMLCanvasElement;
+  w: number;
+  h: number;
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Failed to load ${src}`));
+    img.src = src;
+  });
+}
+
+type Transform = 'none' | 'flipY' | 'rot90';
+
+/** Stack tiles vertically (top to bottom) into one sprite, then trim transparent edges. */
+function cut(sheet: HTMLImageElement, tiles: number[], transform: Transform = 'none'): Sprite {
+  const w = TILE, h = TILE * tiles.length;
+  const c = document.createElement('canvas');
+  c.width = transform === 'rot90' ? h : w;
+  c.height = transform === 'rot90' ? w : h;
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  if (transform === 'flipY') { ctx.translate(0, h); ctx.scale(1, -1); }
+  if (transform === 'rot90') { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); }
+  tiles.forEach((t, i) => {
+    ctx.drawImage(sheet, (t % COLS) * TILE, Math.floor(t / COLS) * TILE, TILE, TILE, 0, i * TILE, TILE, TILE);
+  });
+  return trim(c);
+}
+
+function trim(src: HTMLCanvasElement): Sprite {
+  const { width: w, height: h } = src;
+  const data = src.getContext('2d')!.getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (data[(y * w + x) * 4 + 3] === 0) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  if (x1 < 0) return { img: src, w, h };
+  const tw = x1 - x0 + 1, th = y1 - y0 + 1;
+  if (tw === w && th === h) return { img: src, w, h };
+  const c = document.createElement('canvas');
+  c.width = tw;
+  c.height = th;
+  c.getContext('2d')!.drawImage(src, x0, y0, tw, th, 0, 0, tw, th);
+  return { img: c, w: tw, h: th };
+}
+
+/** A ground texture of plain and speckled snow tiles, tiled across the screen with a world offset. */
+function ground(sheet: HTMLImageElement, tilesAcross: number): Sprite {
+  const size = TILE * tilesAcross;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d')!;
+  let seed = 12345;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+  for (let ty = 0; ty < tilesAcross; ty++) {
+    for (let tx = 0; tx < tilesAcross; tx++) {
+      const t = rnd() < 0.18 ? T.snowSpeckle : T.snow;
+      ctx.drawImage(sheet, (t % COLS) * TILE, Math.floor(t / COLS) * TILE, TILE, TILE, tx * TILE, ty * TILE, TILE, TILE);
+    }
+  }
+  return { img: c, w: size, h: size };
+}
+
+export interface SpriteSet {
+  ground: Sprite;
+  treeS: Sprite;
+  treeL: Sprite;
+  treeD: Sprite;
+  rock: Sprite;
+  stump: Sprite;
+  mogul: Sprite;
+  ramp: Sprite;
+  snowman: Sprite;
+  flags: Sprite[];
+  skier: Sprite;
+  skierAir: Sprite;
+  skierCrash: Sprite;
+  skierFlip: Sprite;
+  yetiRun: Sprite[];
+  yetiEat: Sprite[];
+}
+
+export async function loadSprites(): Promise<SpriteSet> {
+  const sheet = await loadImage(sheetUrl);
+  return {
+    ground: ground(sheet, 16),
+    treeS: cut(sheet, [T.treeSmall]),
+    treeL: cut(sheet, [T.treeTop, T.treeBottom]),
+    treeD: cut(sheet, [T.deadTop, T.deadBottom]),
+    rock: cut(sheet, [T.rock]),
+    stump: cut(sheet, [T.stump]),
+    mogul: cut(sheet, [T.mogul]),
+    ramp: cut(sheet, [T.ramp]),
+    snowman: cut(sheet, [T.snowman]),
+    flags: [cut(sheet, [T.flagRed]), cut(sheet, [T.flagBlue])],
+    skier: cut(sheet, [T.skier]),
+    skierAir: cut(sheet, [T.skierPoles]),
+    skierCrash: cut(sheet, [T.skier], 'rot90'),
+    skierFlip: cut(sheet, [T.skierPoles], 'flipY'),
+    yetiRun: [cut(sheet, [T.yetiA]), cut(sheet, [T.yetiB])],
+    yetiEat: [cut(sheet, [T.yetiRoar]), cut(sheet, [T.yetiA])],
+  };
+}
+
+/** Pixel-perfect line (Bresenham) so skis stay crisp at low resolution. */
+export function pixelLine(
+  ctx: CanvasRenderingContext2D,
+  x0: number, y0: number, x1: number, y1: number, color: string,
+): void {
+  x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  ctx.fillStyle = color;
+  for (let i = 0; i < 1000; i++) {
+    ctx.fillRect(x0, y0, 1, 1);
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+  }
+}

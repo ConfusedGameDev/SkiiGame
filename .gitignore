@@ -1,0 +1,89 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# --- added by /safeguard ---
+# Things that should never be backed up: operating-system noise, temporary files,
+# application caches, and anything that looks like a password.
+
+# Operating system
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Office / creative app lock and autosave files
+~$*
+*.tmp
+*.temp
+*.bak
+*.autosave
+*.blend1
+*.blend2
+*.blend3
+*.psb~
+*.aep.bk*
+Adobe Premiere Pro Auto-Save/
+Adobe After Effects Auto-Save/
+*.prlock
+*.cfa
+*.pek
+
+# Secrets — these must not go to GitHub
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_dsa
+id_ed25519
+credentials.json
+serviceAccount*.json
+secrets.json
+
+# Editors / IDEs
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build output (generic)
+bin/
+obj/
+build/
+dist/
+out/
+node_modules/
+__pycache__/
+*.pyc
+# --- end /safeguard ---
