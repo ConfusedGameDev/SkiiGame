@@ -1,7 +1,7 @@
 # Skii
 
 A remake of the classic Windows 95 ski game. Ski down an endless mountain, dodge trees, rocks and stumps,
-hit ramps and spin for trick points, ride past an endless chairlift, and try not to get eaten past 2000 m.
+hit ramps and spin for trick points, ride past an endless chairlift, and try not to get eaten past 1000 m.
 Make the local top ten and you enter your initials, arcade style.
 
 Web first (HTML5 canvas, no framework), built so it can be wrapped for mobile later.

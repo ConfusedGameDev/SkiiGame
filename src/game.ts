@@ -22,7 +22,7 @@ const SPIN_RATE = 660;         // degrees per second while a steering key is hel
 const LAND_TOLERANCE = 45;     // degrees off a whole turn that still counts as a clean landing
 const COMBO_MULT = 1.5;        // spin + flip in the same jump
 const CRASH_TIME = 1.1;
-const YETI_DISTANCE_M = 2000;
+const YETI_DISTANCE_M = 1000;
 const YETI_SPEED = 205;
 const YETI_EAT_TIME = 2.2;
 const HEADING_STEPS = 4;       // 0 = straight down, ±4 = sideways (stopped)
