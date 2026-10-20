@@ -1,7 +1,9 @@
 // Infinite, deterministic obstacle field generated per chunk from a seeded RNG.
 
+import { LIFT_X, POLE_SPACING } from './lift.ts';
+
 export type ObstacleKind =
-  'treeS' | 'treeL' | 'treeD' | 'rock' | 'stump' | 'snowman' | 'flag' | 'mogul' | 'ramp';
+  'treeS' | 'treeL' | 'treeD' | 'rock' | 'stump' | 'snowman' | 'flag' | 'mogul' | 'ramp' | 'rampL' | 'pole';
 
 export interface Obstacle {
   id: number;
@@ -24,16 +26,19 @@ export const HITBOX: Record<ObstacleKind, [number, number]> = {
   flag: [4, 4],
   mogul: [4, 3],
   ramp: [8, 6],
+  rampL: [15, 6],
+  pole: [3, 4],
 };
 
 export const SOLID: Record<ObstacleKind, boolean> = {
   treeS: true, treeL: true, treeD: true, rock: true, stump: true, snowman: true, flag: true,
-  mogul: false, ramp: false,
+  mogul: false, ramp: false, rampL: false, pole: true,
 };
 
 /** Minimum airborne height needed to clear this obstacle. Infinity = never. */
 export const CLEAR_HEIGHT: Record<ObstacleKind, number> = {
   treeS: 16, treeL: Infinity, treeD: 24, rock: 8, stump: 8, snowman: 16, flag: 16, mogul: 3, ramp: 4,
+  rampL: 4, pole: Infinity,
 };
 
 function hash32(a: number, b: number, c: number): number {
@@ -54,7 +59,7 @@ function mulberry32(seed: number): () => number {
 
 const KINDS: [ObstacleKind, number][] = [
   ['treeS', 26], ['treeL', 20], ['treeD', 6], ['rock', 12], ['stump', 8], ['snowman', 4], ['flag', 6],
-  ['mogul', 12], ['ramp', 8],
+  ['mogul', 12], ['ramp', 10], ['rampL', 5],
 ];
 const KIND_TOTAL = KINDS.reduce((s, k) => s + k[1], 0);
 
@@ -79,6 +84,12 @@ export class World {
   private gen(cx: number, cy: number): Obstacle[] {
     const rng = mulberry32(hash32(cx, cy, this.seed));
     const list: Obstacle[] = [];
+    // Lift poles run the whole height of the mountain, above the start line too.
+    if (cx * CHUNK <= LIFT_X && LIFT_X < (cx + 1) * CHUNK) {
+      for (let y = Math.ceil((cy * CHUNK) / POLE_SPACING) * POLE_SPACING; y < (cy + 1) * CHUNK; y += POLE_SPACING) {
+        list.push({ id: this.nextId++, kind: 'pole', x: LIFT_X, y });
+      }
+    }
     const depthM = (cy * CHUNK) / PX_PER_M;
     // Above the start line: nothing. Density climbs gently with distance.
     if (cy < -1) return list;
@@ -89,6 +100,8 @@ export class World {
       const y = cy * CHUNK + rng() * CHUNK;
       // Keep a clear lane at the very start.
       if (y < 160 && Math.abs(x) < 70) continue;
+      // And keep the lift's pole line free.
+      if (Math.abs(x - LIFT_X) < 14) continue;
       list.push({ id: this.nextId++, kind: pickKind(rng()), x, y });
     }
     return list;

@@ -15,6 +15,13 @@ export class Input {
   pause = false;
   restart = false;
   any = false;
+  /** Raw key codes pressed this frame (menus read these directly). */
+  codes: string[] = [];
+  /** Pointer press this frame, CSS pixels relative to the canvas. */
+  tap: { x: number; y: number } | null = null;
+
+  /** Steering keys / buttons currently held down; used to spin in the air. */
+  private held = { left: false, right: false };
 
   /** Mouse steering: last known position; disabled until the mouse moves again after a key press. */
   mouse: Pointer = { active: false, x: 0, y: 0 };
@@ -30,18 +37,26 @@ export class Input {
     window.addEventListener('keydown', (e) => {
       if (e.repeat && e.code !== 'ArrowLeft' && e.code !== 'ArrowRight' && e.code !== 'KeyA' && e.code !== 'KeyD') return;
       this.any = true;
+      this.codes.push(e.code);
       switch (e.code) {
-        case 'ArrowLeft': case 'KeyA': this.turn = -1; this.mouse.active = false; break;
-        case 'ArrowRight': case 'KeyD': this.turn = 1; this.mouse.active = false; break;
+        case 'ArrowLeft': case 'KeyA': this.turn = -1; this.held.left = true; this.mouse.active = false; break;
+        case 'ArrowRight': case 'KeyD': this.turn = 1; this.held.right = true; this.mouse.active = false; break;
         case 'ArrowDown': case 'KeyS': this.straight = true; this.mouse.active = false; break;
         case 'ArrowUp': case 'KeyW': case 'Space': this.jump = true; break;
         case 'KeyF': case 'ShiftLeft': case 'ShiftRight': this.fastToggle = true; break;
         case 'KeyP': case 'Escape': this.pause = true; break;
         case 'KeyR': this.restart = true; break;
+        case 'Enter': case 'Backspace': break;
         default: return;
       }
       e.preventDefault();
     });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'ArrowLeft' || e.code === 'KeyA') this.held.left = false;
+      if (e.code === 'ArrowRight' || e.code === 'KeyD') this.held.right = false;
+    });
+    window.addEventListener('blur', () => { this.held.left = this.held.right = false; });
 
     canvas.addEventListener('pointermove', (e) => {
       if (e.pointerType === 'mouse') {
@@ -55,6 +70,8 @@ export class Input {
 
     canvas.addEventListener('pointerdown', (e) => {
       this.any = true;
+      const tr = canvas.getBoundingClientRect();
+      this.tap = { x: e.clientX - tr.left, y: e.clientY - tr.top };
       if (e.pointerType === 'mouse') {
         if (e.button === 0) this.jump = true;
         return;
@@ -77,26 +94,40 @@ export class Input {
     canvas.addEventListener('pointercancel', endTouch);
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // On-screen buttons.
+    // On-screen buttons. They also report key codes so menus work with them.
     touchRoot.querySelectorAll<HTMLButtonElement>('button[data-act]').forEach((btn) => {
       const act = btn.dataset.act!;
       const press = (e: Event) => {
         e.preventDefault();
         this.any = true;
         switch (act) {
-          case 'left': this.turn = -1; break;
-          case 'right': this.turn = 1; break;
-          case 'down': this.straight = true; break;
-          case 'jump': this.jump = true; break;
+          case 'left': this.turn = -1; this.held.left = true; this.codes.push('ArrowLeft'); break;
+          case 'right': this.turn = 1; this.held.right = true; this.codes.push('ArrowRight'); break;
+          case 'down': this.straight = true; this.codes.push('ArrowDown'); break;
+          case 'jump': this.jump = true; this.codes.push('Space'); break;
           case 'fast': this.fastToggle = true; break;
         }
       };
+      const release = () => {
+        if (act === 'left') this.held.left = false;
+        if (act === 'right') this.held.right = false;
+      };
       btn.addEventListener('pointerdown', press);
+      btn.addEventListener('pointerup', release);
+      btn.addEventListener('pointercancel', release);
+      btn.addEventListener('pointerleave', release);
     });
+  }
+
+  /** -1 / +1 while a left / right steering key or button is held, else 0. */
+  spinDir(): number {
+    return (this.held.right ? 1 : 0) - (this.held.left ? 1 : 0);
   }
 
   /** Clear one-shot intents after the game has read them. */
   flush(): void {
+    this.codes = [];
+    this.tap = null;
     this.turn = 0;
     this.straight = false;
     this.jump = false;

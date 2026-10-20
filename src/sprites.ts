@@ -18,6 +18,17 @@ const T = {
   rock: 81,
   mogul: 95,
   ramp: 36,
+  rampBigL: 62,
+  rampBigR: 63,
+  liftTop: 42,
+  liftPole: 54,
+  liftBase: 66,
+  cable: 46,
+  gondolaTL: 55,
+  gondolaTR: 56,
+  gondolaBL: 67,
+  gondolaBR: 68,
+  chair: 57,
   snowman: 69,
   flagRed: 20,
   flagBlue: 21,
@@ -53,9 +64,9 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 type Transform = 'none' | 'flipY' | 'rot90';
 
-/** Stack tiles vertically (top to bottom) into one sprite, then trim transparent edges. */
-function cut(sheet: HTMLImageElement, tiles: number[], transform: Transform = 'none'): Sprite {
-  const w = TILE, h = TILE * tiles.length;
+/** Compose a grid of tiles (rows top to bottom) into one sprite, then trim transparent edges. */
+function cut(sheet: HTMLImageElement, grid: number[][], transform: Transform = 'none', doTrim = true): Sprite {
+  const w = TILE * grid[0].length, h = TILE * grid.length;
   const c = document.createElement('canvas');
   c.width = transform === 'rot90' ? h : w;
   c.height = transform === 'rot90' ? w : h;
@@ -63,10 +74,20 @@ function cut(sheet: HTMLImageElement, tiles: number[], transform: Transform = 'n
   ctx.imageSmoothingEnabled = false;
   if (transform === 'flipY') { ctx.translate(0, h); ctx.scale(1, -1); }
   if (transform === 'rot90') { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); }
-  tiles.forEach((t, i) => {
-    ctx.drawImage(sheet, (t % COLS) * TILE, Math.floor(t / COLS) * TILE, TILE, TILE, 0, i * TILE, TILE, TILE);
-  });
-  return trim(c);
+  grid.forEach((row, r) => row.forEach((t, col) => {
+    ctx.drawImage(sheet, (t % COLS) * TILE, Math.floor(t / COLS) * TILE, TILE, TILE, col * TILE, r * TILE, TILE, TILE);
+  }));
+  return doTrim ? trim(c) : { img: c, w: c.width, h: c.height };
+}
+
+/** Font tiles: digits, ':' and a snowball, then A-Z, then symbols. */
+const GLYPH_ORDER = '0123456789:o' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' + '!#$%+-x/=.';
+const GLYPH_FIRST = 84;
+
+function glyphs(sheet: HTMLImageElement): Map<string, Sprite> {
+  const m = new Map<string, Sprite>();
+  [...GLYPH_ORDER].forEach((ch, i) => m.set(ch, cut(sheet, [[GLYPH_FIRST + i]], 'none', false)));
+  return m;
 }
 
 function trim(src: HTMLCanvasElement): Sprite {
@@ -119,35 +140,52 @@ export interface SpriteSet {
   stump: Sprite;
   mogul: Sprite;
   ramp: Sprite;
+  rampBig: Sprite;
   snowman: Sprite;
   flags: Sprite[];
+  liftPole: Sprite;
+  liftTop: Sprite;
+  liftCrossbar: Sprite;
+  liftCable: Sprite;
+  gondola: Sprite;
+  chair: Sprite;
   skier: Sprite;
   skierAir: Sprite;
   skierCrash: Sprite;
   skierFlip: Sprite;
   yetiRun: Sprite[];
   yetiEat: Sprite[];
+  glyphs: Map<string, Sprite>;
 }
 
 export async function loadSprites(): Promise<SpriteSet> {
   const sheet = await loadImage(sheetUrl);
   return {
     ground: ground(sheet, 16),
-    treeS: cut(sheet, [T.treeSmall]),
-    treeL: cut(sheet, [T.treeTop, T.treeBottom]),
-    treeD: cut(sheet, [T.deadTop, T.deadBottom]),
-    rock: cut(sheet, [T.rock]),
-    stump: cut(sheet, [T.stump]),
-    mogul: cut(sheet, [T.mogul]),
-    ramp: cut(sheet, [T.ramp]),
-    snowman: cut(sheet, [T.snowman]),
-    flags: [cut(sheet, [T.flagRed]), cut(sheet, [T.flagBlue])],
-    skier: cut(sheet, [T.skier]),
-    skierAir: cut(sheet, [T.skierPoles]),
-    skierCrash: cut(sheet, [T.skier], 'rot90'),
-    skierFlip: cut(sheet, [T.skierPoles], 'flipY'),
-    yetiRun: [cut(sheet, [T.yetiA]), cut(sheet, [T.yetiB])],
-    yetiEat: [cut(sheet, [T.yetiRoar]), cut(sheet, [T.yetiA])],
+    treeS: cut(sheet, [[T.treeSmall]]),
+    treeL: cut(sheet, [[T.treeTop], [T.treeBottom]]),
+    treeD: cut(sheet, [[T.deadTop], [T.deadBottom]]),
+    rock: cut(sheet, [[T.rock]]),
+    stump: cut(sheet, [[T.stump]]),
+    mogul: cut(sheet, [[T.mogul]]),
+    ramp: cut(sheet, [[T.ramp]]),
+    rampBig: cut(sheet, [[T.rampBigL, T.rampBigR]]),
+    snowman: cut(sheet, [[T.snowman]]),
+    flags: [cut(sheet, [[T.flagRed]]), cut(sheet, [[T.flagBlue]])],
+    // Lift pieces stay untrimmed so they line up on the 16 px grid.
+    liftPole: cut(sheet, [[T.liftPole], [T.liftBase]], 'none', false),
+    liftTop: cut(sheet, [[T.liftTop]], 'none', false),
+    liftCrossbar: cut(sheet, [[T.cable]], 'none', false),
+    liftCable: cut(sheet, [[T.cable]], 'rot90', false),
+    gondola: cut(sheet, [[T.gondolaTL, T.gondolaTR], [T.gondolaBL, T.gondolaBR]], 'none', false),
+    chair: cut(sheet, [[T.chair]], 'none', false),
+    skier: cut(sheet, [[T.skier]]),
+    skierAir: cut(sheet, [[T.skierPoles]]),
+    skierCrash: cut(sheet, [[T.skier]], 'rot90'),
+    skierFlip: cut(sheet, [[T.skierPoles]], 'flipY'),
+    yetiRun: [cut(sheet, [[T.yetiA]]), cut(sheet, [[T.yetiB]])],
+    yetiEat: [cut(sheet, [[T.yetiRoar]]), cut(sheet, [[T.yetiA]])],
+    glyphs: glyphs(sheet),
   };
 }
 

@@ -1,5 +1,8 @@
 import { COLORS, pixelLine, type Sprite, type SpriteSet } from './sprites.ts';
 import { World, HITBOX, SOLID, CLEAR_HEIGHT, PX_PER_M, type Obstacle } from './world.ts';
+import { renderLift } from './lift.ts';
+import { drawText } from './font.ts';
+import { HighScores } from './highscores.ts';
 import type { Input } from './input.ts';
 
 // ---- Tuning ---------------------------------------------------------------
@@ -10,8 +13,14 @@ const DECEL = 5.0;
 const GRAVITY = 420;
 const HOP_VZ = 95;
 const RAMP_VZ = 150;
+const RAMP_BIG_VZ = 230;
 const MOGUL_VZ = 70;
+const AIR_DRAW_SCALE = 0.6;    // big jumps would leave the screen, so height is drawn compressed
 const FLIP_TIME = 0.55;
+const FLIP_POINTS = 50;
+const SPIN_RATE = 660;         // degrees per second while a steering key is held in the air
+const LAND_TOLERANCE = 45;     // degrees off a whole turn that still counts as a clean landing
+const COMBO_MULT = 1.5;        // spin + flip in the same jump
 const CRASH_TIME = 1.1;
 const YETI_DISTANCE_M = 2000;
 const YETI_SPEED = 205;
@@ -19,8 +28,9 @@ const YETI_EAT_TIME = 2.2;
 const HEADING_STEPS = 4;       // 0 = straight down, ±4 = sideways (stopped)
 const TRACK_SPACING = 3;
 const MAX_TRACKS = 700;
+const POPUP_TIME = 1.1;
 
-export type Phase = 'title' | 'playing' | 'paused' | 'over';
+export type Phase = 'title' | 'playing' | 'paused' | 'entry' | 'board';
 
 interface Track { x: number; y: number; }
 
@@ -33,7 +43,8 @@ interface Skier {
   state: 'ski' | 'crash' | 'eaten';
   stateT: number;
   flipT: number;               // >0 while flipping
-  flips: number;
+  airFlips: number;            // flips completed during the current jump
+  spin: number;                // degrees rotated during the current jump (signed)
   lastJumpId: number;
   ignoreId: number;             // obstacle we just crashed into; ignored until we move off it
   trackDist: number;
@@ -46,12 +57,21 @@ interface Yeti {
   frame: number;
 }
 
+interface Popup { lines: string[]; x: number; y: number; t: number; }
+
 export interface Stats {
   distanceM: number;
   time: number;
   speedMs: number;
   style: number;
+  score: number;
   fast: boolean;
+}
+
+/** Points for landing n whole turns: 360 = 100, 720 = 250, 1080 = 500, then +250 per turn. */
+function spinPoints(n: number): number {
+  if (n <= 0) return 0;
+  return [0, 100, 250, 500][n] ?? 500 + 250 * (n - 3);
 }
 
 export class Game {
@@ -61,8 +81,11 @@ export class Game {
   private skier!: Skier;
   private yeti!: Yeti;
   private tracks: Track[] = [];
+  private popups: Popup[] = [];
   private style = 0;
   private time = 0;
+  private animT = 0;           // wall clock for scenery animation; runs on every screen
+  private readonly scores = new HighScores();
   private viewW = 320;
   private viewH = 240;
   onPhase: (p: Phase) => void = () => {};
@@ -81,10 +104,11 @@ export class Game {
     this.world = new World((Math.random() * 0xffffffff) >>> 0);
     this.skier = {
       x: 0, y: 0, z: 0, vz: 0, heading: 0, speed: 0, fast: false,
-      state: 'ski', stateT: 0, flipT: 0, flips: 0, lastJumpId: 0, ignoreId: 0, trackDist: 0,
+      state: 'ski', stateT: 0, flipT: 0, airFlips: 0, spin: 0, lastJumpId: 0, ignoreId: 0, trackDist: 0,
     };
     this.yeti = { state: 'none', x: 0, y: 0, t: 0, frame: 0 };
     this.tracks = [];
+    this.popups = [];
     this.style = 0;
     this.time = 0;
   }
@@ -105,11 +129,13 @@ export class Game {
   }
 
   stats(): Stats {
+    const distanceM = Math.max(0, this.skier.y / PX_PER_M);
     return {
-      distanceM: Math.max(0, this.skier.y / PX_PER_M),
+      distanceM,
       time: this.time,
       speedMs: this.skier.speed / PX_PER_M,
       style: this.style,
+      score: Math.floor(distanceM) + this.style,
       fast: this.skier.fast,
     };
   }
@@ -126,6 +152,15 @@ export class Game {
 
   // ---- Update --------------------------------------------------------------
   update(dt: number, input: Input): void {
+    if (this.phase !== 'paused') this.animT += dt;
+
+    if (this.phase === 'entry' || this.phase === 'board') {
+      const r = this.scores.update(dt, input, this.viewW, this.viewH);
+      if (r === 'saved') this.setPhase('board');
+      else if (r === 'again') this.start();
+      return;
+    }
+
     if (input.restart) { this.start(); return; }
     if (input.pause) { this.togglePause(); }
     if (this.phase !== 'playing') return;
@@ -143,6 +178,9 @@ export class Game {
       this.moveSkier(dt, input);
     }
 
+    for (const p of this.popups) p.t += dt;
+    this.popups = this.popups.filter((p) => p.t < POPUP_TIME);
+
     this.updateYeti(dt);
     this.world.prune(s.x, s.y);
   }
@@ -150,12 +188,14 @@ export class Game {
   private readSteering(input: Input): void {
     const s = this.skier;
     if (s.state !== 'ski') return;
+    if (input.fastToggle) s.fast = !s.fast;
+    // In the air the steering keys spin the skier instead (see moveSkier).
+    if (s.z > 0) return;
 
     if (input.turn !== 0) {
       s.heading = Math.max(-HEADING_STEPS, Math.min(HEADING_STEPS, s.heading + input.turn));
     }
     if (input.straight) s.heading = 0;
-    if (input.fastToggle) s.fast = !s.fast;
 
     // Pointer steering (mouse hover or held touch): head toward the pointer.
     const p = input.touch.active ? input.touch : input.mouse.active ? input.mouse : null;
@@ -173,6 +213,15 @@ export class Game {
     }
   }
 
+  /** -1 / 0 / +1: held steering keys or buttons, or a finger held left/right of the skier. */
+  private spinInput(input: Input): number {
+    const d = input.spinDir();
+    if (d !== 0 || !input.touch.active) return d;
+    const { x } = input.toLogical(input.touch, 1);
+    const dx = x - this.skierScreen().sx;
+    return Math.abs(dx) < 8 ? 0 : Math.sign(dx);
+  }
+
   private moveSkier(dt: number, input: Input): void {
     const s = this.skier;
     const ang = (Math.abs(s.heading) / HEADING_STEPS) * (Math.PI / 2);
@@ -188,23 +237,20 @@ export class Game {
     // Jump / flip.
     if (input.jump) {
       if (s.z <= 0 && s.speed > 20) {
-        s.vz = HOP_VZ;
-        s.z = 0.01;
+        this.takeOff(HOP_VZ);
       } else if (s.z > 0 && s.flipT <= 0) {
         s.flipT = FLIP_TIME;
       }
     }
     if (s.z > 0) {
+      s.spin += this.spinInput(input) * SPIN_RATE * dt;
       s.vz -= GRAVITY * dt;
       s.z += s.vz * dt;
       if (s.flipT > 0) {
         s.flipT -= dt;
-        if (s.flipT <= 0) { s.flipT = 0; s.flips++; this.style += 50; }
+        if (s.flipT <= 0) { s.flipT = 0; s.airFlips++; }
       }
-      if (s.z <= 0) {
-        s.z = 0; s.vz = 0;
-        if (s.flipT > 0) { s.flipT = 0; this.crash(); return; }
-      }
+      if (s.z <= 0 && !this.land()) return;
     }
 
     s.x += vx * dt;
@@ -221,6 +267,42 @@ export class Game {
     }
 
     this.collide();
+  }
+
+  private takeOff(vz: number): void {
+    const s = this.skier;
+    if (s.z <= 0) { s.spin = 0; s.airFlips = 0; }
+    s.vz = Math.max(s.vz, vz);
+    s.z = Math.max(s.z, 0.01);
+  }
+
+  /** Touch down: score the jump's tricks, or bail. Returns false if the skier crashed. */
+  private land(): boolean {
+    const s = this.skier;
+    s.z = 0; s.vz = 0;
+    const turns = Math.round(Math.abs(s.spin) / 360);
+    const off = Math.abs(Math.abs(s.spin) - turns * 360);
+    const midFlip = s.flipT > 0;
+    const flips = s.airFlips;
+    s.spin = 0; s.airFlips = 0; s.flipT = 0;
+
+    if (midFlip || off > LAND_TOLERANCE) {
+      this.popup(['BAIL']);
+      this.crash();
+      return false;
+    }
+    let pts = spinPoints(turns) + flips * FLIP_POINTS;
+    if (pts === 0) return true;
+    if (turns > 0 && flips > 0) pts = Math.round(pts * COMBO_MULT);
+    this.style += pts;
+    const name = [turns > 0 ? String(turns * 360) : '', flips > 0 ? (flips > 1 ? `${flips} FLIP` : 'FLIP') : '']
+      .filter(Boolean).join(' ');
+    this.popup([name, `+${pts}`]);
+    return true;
+  }
+
+  private popup(lines: string[]): void {
+    this.popups.push({ lines, x: this.skier.x, y: this.skier.y - 24, t: 0 });
   }
 
   private collide(): void {
@@ -240,14 +322,13 @@ export class Game {
       }
       if (o.id === s.lastJumpId) continue;
       s.lastJumpId = o.id;
-      if (o.kind === 'ramp') {
-        s.vz = RAMP_VZ + s.speed * 0.45;
-        s.z = Math.max(s.z, 0.01);
+      if (o.kind === 'ramp' || o.kind === 'rampL') {
+        const big = o.kind === 'rampL';
+        this.takeOff((big ? RAMP_BIG_VZ : RAMP_VZ) + s.speed * (big ? 0.3 : 0.45));
         s.speed *= 1.05;
-        this.style += 10;
+        this.style += big ? 20 : 10;
       } else if (o.kind === 'mogul') {
-        s.vz = Math.max(s.vz, MOGUL_VZ);
-        s.z = Math.max(s.z, 0.01);
+        this.takeOff(MOGUL_VZ);
       }
     }
     if (!stillOnIgnored) s.ignoreId = 0;
@@ -258,7 +339,7 @@ export class Game {
     s.ignoreId = o ? o.id : 0;
     s.state = 'crash';
     s.stateT = CRASH_TIME;
-    s.z = 0; s.vz = 0; s.flipT = 0;
+    s.z = 0; s.vz = 0; s.flipT = 0; s.spin = 0; s.airFlips = 0;
     s.speed = 0;
     s.fast = false;
   }
@@ -294,7 +375,10 @@ export class Game {
       y.y += (dy / d) * step;
     } else if (y.state === 'eat') {
       y.frame = Math.floor(y.t * 4) % 2;
-      if (y.t >= YETI_EAT_TIME) this.setPhase('over');
+      if (y.t >= YETI_EAT_TIME) {
+        const st = this.stats();
+        this.setPhase(this.scores.begin({ score: st.score, dist: Math.floor(st.distanceM), style: st.style }));
+      }
     }
   }
 
@@ -324,33 +408,7 @@ export class Game {
       items.push({ y: o.y, draw: () => this.drawObstacle(ctx, o, cx, cy) });
     }
 
-    // Skier (shadow is drawn on the ground when airborne).
-    items.push({
-      y: s.y,
-      draw: () => {
-        const sx = Math.round(s.x - cx), sy = Math.round(s.y - cy);
-        if (s.state === 'eaten') return;
-        if (s.state === 'crash') {
-          const c = sp.skierCrash;
-          ctx.drawImage(c.img, sx - (c.w >> 1), sy - c.h + 2);
-          return;
-        }
-        if (s.z > 0) {
-          ctx.fillStyle = COLORS.track;
-          ctx.fillRect(sx - 5, sy - 1, 10, 2);
-        }
-        const lift = Math.round(s.z);
-        if (s.flipT > 0) {
-          const f = sp.skierFlip;
-          ctx.drawImage(f.img, sx - (f.w >> 1), sy - lift - f.h - 4);
-          return;
-        }
-        // The sprite already shows ski tips pointing downhill; only draw rotated skis when turned.
-        if (s.heading !== 0) this.drawSkis(ctx, sx, sy - lift, s.heading);
-        const b = s.z > 0 ? sp.skierAir : sp.skier;
-        ctx.drawImage(b.img, sx - (b.w >> 1), sy - lift - b.h + 2);
-      },
-    });
+    items.push({ y: s.y, draw: () => this.drawSkier(ctx, cx, cy) });
 
     // Yeti.
     const yt = this.yeti;
@@ -368,6 +426,50 @@ export class Game {
 
     items.sort((a, b) => a.y - b.y);
     for (const it of items) it.draw();
+
+    // Overhead: lift cables and wagons, then trick popups.
+    renderLift(ctx, sp, cx, cy, W, H, this.animT);
+    for (const p of this.popups) {
+      if (p.t > POPUP_TIME - 0.3 && Math.floor(p.t * 12) % 2 === 0) continue;
+      const px = Math.round(p.x - cx), py = Math.round(p.y - cy - p.t * 18);
+      p.lines.forEach((line, i) => drawText(ctx, sp.glyphs, line, px, py - (p.lines.length - 1 - i) * 16, 'center'));
+    }
+
+    if (this.phase === 'entry' || this.phase === 'board') this.scores.render(ctx, sp.glyphs, W, H);
+  }
+
+  private drawSkier(ctx: CanvasRenderingContext2D, cx: number, cy: number): void {
+    const s = this.skier, sp = this.sprites;
+    const sx = Math.round(s.x - cx), sy = Math.round(s.y - cy);
+    if (s.state === 'eaten') return;
+    if (s.state === 'crash') {
+      const c = sp.skierCrash;
+      ctx.drawImage(c.img, sx - (c.w >> 1), sy - c.h + 2);
+      return;
+    }
+    if (s.z <= 0) {
+      // The sprite already shows ski tips pointing downhill; only draw rotated skis when turned.
+      if (s.heading !== 0) this.drawSkis(ctx, sx, sy, s.heading);
+      ctx.drawImage(sp.skier.img, sx - (sp.skier.w >> 1), sy - sp.skier.h + 2);
+      return;
+    }
+
+    // Airborne: shadow on the snow, body lifted and rotated by the spin (snapped to 45°).
+    ctx.fillStyle = COLORS.track;
+    ctx.fillRect(sx - 5, sy - 1, 10, 2);
+    const lift = Math.round(s.z * AIR_DRAW_SCALE);
+    const b = s.flipT > 0 ? sp.skierFlip : sp.skierAir;
+    const snap = Math.round(s.spin / 45) * 45;
+    const midY = sy - lift - (b.h >> 1) + 2 - (s.flipT > 0 ? 6 : 0);
+    if (snap % 360 === 0) {
+      ctx.drawImage(b.img, sx - (b.w >> 1), midY - (b.h >> 1));
+      return;
+    }
+    ctx.save();
+    ctx.translate(sx, midY);
+    ctx.rotate((snap * Math.PI) / 180);
+    ctx.drawImage(b.img, -(b.w >> 1), -(b.h >> 1));
+    ctx.restore();
   }
 
   private drawObstacle(ctx: CanvasRenderingContext2D, o: Obstacle, cx: number, cy: number): void {
@@ -389,6 +491,8 @@ export class Game {
       case 'flag': return sp.flags[o.id % sp.flags.length];
       case 'mogul': return sp.mogul;
       case 'ramp': return sp.ramp;
+      case 'rampL': return sp.rampBig;
+      case 'pole': return sp.liftPole;
     }
   }
 
@@ -417,10 +521,11 @@ export class Game {
   }
 
   private renderTitleBackdrop(ctx: CanvasRenderingContext2D): void {
-    // A calm slope with a few trees so the title screen is not an empty white box.
+    // A calm slope with a few trees and the lift running past, so the title screen feels alive.
     const sp = this.sprites;
     const W = this.viewW, H = this.viewH;
-    this.drawGround(ctx, 0, 0);
+    const cx = -Math.floor(W / 2), cy = 0;
+    this.drawGround(ctx, cx, cy);
     const seed = 7;
     for (let i = 0; i < 14; i++) {
       const x = ((i * 97 + seed * 13) % W);
@@ -428,5 +533,9 @@ export class Game {
       const spr = [sp.treeL, sp.treeS, sp.rock, sp.snowman, sp.treeD][i % 5];
       ctx.drawImage(spr.img, x, y);
     }
+    for (const o of this.world.query(cx, cy, cx + W, cy + H)) {
+      if (o.kind === 'pole') this.drawObstacle(ctx, o, cx, cy);
+    }
+    renderLift(ctx, sp, cx, cy, W, H, this.animT);
   }
 }

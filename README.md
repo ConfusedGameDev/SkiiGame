@@ -1,7 +1,8 @@
 # Skii
 
 A remake of the classic Windows 95 ski game. Ski down an endless mountain, dodge trees, rocks and stumps,
-hit ramps for air and style points, and try not to get eaten past 2000 m.
+hit ramps and spin for trick points, ride past an endless chairlift, and try not to get eaten past 2000 m.
+Make the local top ten and you enter your initials, arcade style.
 
 Web first (HTML5 canvas, no framework), built so it can be wrapped for mobile later.
 
@@ -28,19 +29,25 @@ npm run preview   # serve the production bundle
 | Straight down         | ↓ or S                  | pointer directly below the skier   | ▼                                         |
 | Stop                  | turn fully sideways     | pointer above the skier            | finger above the skier                    |
 | Jump / flip in air    | Space or ↑              | left click                         | JUMP                                      |
+| Spin in air (hold)    | ← → or A D              |                                    | hold ◀ ▶ or a finger beside the skier     |
 | Fast mode (toggle)    | F or Shift              |                                    | FAST                                      |
 | Pause                 | P or Esc                | menu bar                           | menu bar                                  |
 | Restart               | R                       | menu bar                           | menu bar                                  |
 
 ## How it works
 
-- `src/game.ts` – game state, physics, collisions, the Yeti, and rendering to a low-res canvas.
+- `src/game.ts` – game state, physics, collisions, tricks (spins, flips, bails), the Yeti, and rendering to a
+  low-res canvas. Score = metres + trick points.
 - `src/world.ts` – infinite deterministic obstacle field. Each 128 px chunk is generated from a seeded RNG,
   so the mountain is endless in every direction and never stored in full.
 - `src/sprites.ts` – cuts sprites out of `Assets/Tilemap/tilemap_packed.png` (16×16 tiles, 12 per row),
   trims them and caches them as canvases. Tile indices live in the `T` table at the top. Skis are drawn
   procedurally so they rotate with the heading.
 - `src/input.ts` – keyboard, mouse and touch collapsed into one intent struct read each frame.
+- `src/lift.ts` – the endless chairlift: poles are solid obstacles from `world.ts`; cables, crossbars and
+  wagons are drawn overhead, positioned purely from time so the line never needs storing.
+- `src/highscores.ts` / `src/scores.ts` – initials entry and top-ten board (canvas), saved in `localStorage`.
+- `src/font.ts` – text drawn with the Kenney letter tiles.
 - `src/main.ts` – bootstrap, integer-scaled resolution, HUD and overlay panels.
 
 The canvas renders at a low logical resolution and is scaled up by an integer factor with

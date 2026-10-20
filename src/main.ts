@@ -1,6 +1,7 @@
 import { Game, type Phase } from './game.ts';
 import { Input } from './input.ts';
 import { loadSprites } from './sprites.ts';
+import { loadScores } from './scores.ts';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -13,26 +14,18 @@ const input = new Input(canvas, $('touch'));
 
 const panels = {
   title: $('panel-title'),
-  over: $('panel-over'),
   pause: $('panel-pause'),
   help: $('panel-help'),
 };
 const overlay = $('overlay');
 const st = {
-  dist: $('st-dist'), speed: $('st-speed'), time: $('st-time'), style: $('st-style'), fast: $('st-fast'),
+  score: $('st-score'), dist: $('st-dist'), speed: $('st-speed'), time: $('st-time'), style: $('st-style'), fast: $('st-fast'),
 };
 const tcFast = $('tc-fast');
 
-const BEST_KEY = 'skii.best';
-function best(): number {
-  try { return Number(localStorage.getItem(BEST_KEY) ?? 0) || 0; } catch { return 0; }
-}
-function saveBest(m: number): void {
-  try { if (m > best()) localStorage.setItem(BEST_KEY, String(Math.floor(m))); } catch { /* ignore */ }
-}
 function bestText(): string {
-  const b = best();
-  return b > 0 ? `Best run: ${b} m` : '';
+  const top = loadScores()[0];
+  return top ? `High score: ${top.name} ${top.score}` : '';
 }
 
 // ---- Resolution: integer-scaled low-res canvas for chunky pixels ----------
@@ -63,28 +56,20 @@ game.onPhase = (p: Phase) => {
       showPanel('title');
       break;
     case 'playing':
+    case 'entry':
+    case 'board':
       showPanel(null);
       break;
     case 'paused':
       showPanel('pause');
       break;
-    case 'over': {
-      const s = game.stats();
-      saveBest(s.distanceM);
-      $('over-stats').innerHTML =
-        `You made it <b>${Math.floor(s.distanceM)} m</b> in ${fmtTime(s.time)}<br />Style points: ${s.style}`;
-      $('best-over').textContent = bestText();
-      showPanel('over');
-      break;
-    }
   }
 };
 
 $('btn-start').addEventListener('click', () => game.start());
-$('btn-retry').addEventListener('click', () => game.start());
 $('btn-resume').addEventListener('click', () => game.togglePause());
 $('btn-help-close').addEventListener('click', () => {
-  showPanel(game.phase === 'playing' ? null : game.phase === 'over' ? 'over' : game.phase === 'paused' ? 'pause' : 'title');
+  showPanel(game.phase === 'title' ? 'title' : game.phase === 'paused' ? 'pause' : null);
 });
 $('menu-restart').addEventListener('click', () => game.start());
 $('menu-pause').addEventListener('click', () => game.togglePause());
@@ -110,8 +95,8 @@ function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
 
-  // Any key / tap on the title or game-over screen starts a run.
-  if ((game.phase === 'title' || game.phase === 'over') && input.any && !panels.help.offsetParent) {
+  // Any key / tap on the title screen starts a run (the high-score screens handle their own input).
+  if (game.phase === 'title' && input.any && !panels.help.offsetParent) {
     if (input.jump || input.straight || input.turn !== 0) game.start();
   }
 
@@ -123,6 +108,7 @@ function frame(now: number): void {
   if (hudAcc > 0.1) {
     hudAcc = 0;
     const s = game.stats();
+    st.score.textContent = `Score ${s.score}`;
     st.dist.textContent = `${Math.floor(s.distanceM)} m`;
     st.speed.textContent = `${s.speedMs.toFixed(1)} m/s`;
     st.time.textContent = fmtTime(s.time);

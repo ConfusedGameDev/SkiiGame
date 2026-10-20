@@ -27,22 +27,16 @@
           <div class="panel" id="panel-title">
             <h1>SKII</h1>
             <p>Ski down the mountain. Dodge trees, rocks and stumps.<br />
-               Hit ramps for air. Something lives past 2000 m.</p>
+               Hit ramps for air and spin for points. Something lives past 2000 m.</p>
             <p class="hint desktop">
               <kbd>←</kbd> <kbd>→</kbd> turn &nbsp; <kbd>↓</kbd> straight &nbsp;
               <kbd>Space</kbd> jump / flip &nbsp; <kbd>F</kbd> fast<br />
+              hold <kbd>←</kbd> <kbd>→</kbd> in the air to spin<br />
               or steer with the mouse
             </p>
             <p class="hint mobile">Hold a finger beside the skier to steer, or use the buttons.</p>
             <button id="btn-start">Start</button>
             <p class="best" id="best-title"></p>
-          </div>
-
-          <div class="panel hidden" id="panel-over">
-            <h1 id="over-title">You got eaten.</h1>
-            <p id="over-stats"></p>
-            <button id="btn-retry">Try again</button>
-            <p class="best" id="best-over"></p>
           </div>
 
           <div class="panel hidden" id="panel-pause">
@@ -55,7 +49,9 @@
             <p><b>Keyboard:</b> Arrow keys or WASD steer. Down = straight. Space / Up = jump, and flip while airborne. F toggles fast mode. P pauses. R restarts.</p>
             <p><b>Mouse:</b> the skier heads towards the pointer. Point above the skier to stop.</p>
             <p><b>Touch:</b> hold a finger on the slope to steer towards it, or use the buttons.</p>
-            <p>Land a flip before you touch the snow or you'll eat it. Moguls bump you, ramps launch you. You can clear small things while airborne, but not big trees.</p>
+            <p><b>Tricks:</b> hold left / right while airborne to spin (on touch, hold ◀ ▶ or a finger beside the skier). Land facing downhill: 360 = 100, 720 = 250, 1080 = 500. A flip is 50, and spin + flip in one jump scores ×1.5. Land crooked or mid-flip and you bail.</p>
+            <p>Big ramps send you higher than small ones. Moguls bump you. You can clear small things while airborne, but not big trees or lift poles.</p>
+            <p><b>Score</b> = metres + trick points. Make the top ten and you get to enter your initials.</p>
             <p class="hint">Art: Tiny Ski by Kenney (kenney.nl), CC0.</p>
             <button id="btn-help-close">OK</button>
           </div>
@@ -74,6 +70,7 @@
         </div>
       </div>
       <div class="statusbar">
+        <span id="st-score">Score 0</span>
         <span id="st-dist">0 m</span>
         <span id="st-speed">0 m/s</span>
         <span id="st-time">0:00</span>
